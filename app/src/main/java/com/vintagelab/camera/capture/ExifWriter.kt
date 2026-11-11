@@ -36,6 +36,20 @@ object ExifWriter {
         emptyMap()
     }
 
+    /** Same, from any image stream (import: JPEG, HEIC, ...). GPS is not among [COPIED_TAGS]. */
+    fun readSource(stream: java.io.InputStream): Map<String, String> = try {
+        val exif = ExifInterface(stream)
+        COPIED_TAGS.mapNotNull { tag -> exif.getAttribute(tag)?.let { tag to it } }.toMap()
+    } catch (e: java.io.IOException) {
+        emptyMap()
+    } catch (e: RuntimeException) {
+        emptyMap()
+    }
+
+    /** EXIF DateTimeOriginal (`yyyy:MM:dd HH:mm:ss`) of [source], or null when absent or malformed. */
+    fun dateTimeOriginal(source: Map<String, String>): LocalDateTime? =
+        source[ExifInterface.TAG_DATETIME_ORIGINAL]?.let { runCatching { LocalDateTime.parse(it.trim(), EXIF_DATE) }.getOrNull() }
+
     /** True when the camera JPEG reports that the flash fired (EXIF Flash bit 0). */
     fun flashFired(jpeg: ByteArray): Boolean = try {
         ExifInterface(ByteArrayInputStream(jpeg)).getAttributeInt(ExifInterface.TAG_FLASH, 0) and 1 != 0

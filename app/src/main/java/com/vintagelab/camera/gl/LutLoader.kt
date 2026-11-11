@@ -17,7 +17,12 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class LutLoader(private val assets: AssetManager) {
     private val filmCache = ConcurrentHashMap<String, FloatArray>()
-    private val bakedCache = ConcurrentHashMap<Preset, ByteArray>()
+    /** Bounded (editor sliders bake many distinct presets); 13 looks plus a few adjusted variants fit comfortably. */
+    private val bakedCache: MutableMap<Preset, ByteArray> = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<Preset, ByteArray>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Preset, ByteArray>): Boolean = size > BAKED_MAX
+        },
+    )
 
     fun filmLut(id: String): FloatArray? {
         filmCache[id]?.let { return it }
@@ -44,11 +49,11 @@ class LutLoader(private val assets: AssetManager) {
     }
 
     /** RGBA8 bytes of the baked look cube for [preset]. */
-    fun baked(preset: Preset): ByteArray = bakedCache.getOrPut(preset) {
-        LookLutBaker.bake(preset, preset.lut?.let { filmLut(it) })
-    }
+    fun baked(preset: Preset): ByteArray =
+        bakedCache[preset] ?: LookLutBaker.bake(preset, preset.lut?.let { filmLut(it) }).also { bakedCache[preset] = it }
 
     private companion object {
         const val TAG = "LutLoader"
+        const val BAKED_MAX = 40
     }
 }

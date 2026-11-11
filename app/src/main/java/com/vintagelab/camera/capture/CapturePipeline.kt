@@ -7,6 +7,7 @@ import android.graphics.ColorSpace
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.content.ContentUris
 import android.net.Uri
 import android.util.Log
 import com.vintagelab.camera.gl.OffscreenRenderer
@@ -15,12 +16,15 @@ import com.vintagelab.camera.looks.IntRect
 import com.vintagelab.camera.looks.LookState
 import com.vintagelab.camera.looks.Preset
 import com.vintagelab.camera.looks.SourceTransform
+import com.vintagelab.camera.negatives.NegativeSettings
+import com.vintagelab.camera.negatives.NegativeStore
 import com.vintagelab.camera.perf.PerfLog
 import com.vintagelab.camera.storage.MediaStoreSaver
 import com.vintagelab.camera.storage.StorageConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.time.LocalDateTime
 import kotlin.math.sqrt
@@ -73,7 +77,14 @@ class CapturePipeline(
     private val saver: MediaStoreSaver,
     /** ActivityManager.memoryClass (or largeMemoryClass with largeHeap), MB. */
     private val memoryClassMb: Int,
+    /** Where negatives are kept (SPEC 6.9); null disables them (tests). */
+    private val negatives: NegativeStore? = null,
+    /** The "Keep negatives" setting, read at each save. */
+    private val keepNegatives: () -> Boolean = { true },
 ) {
+    /** A neutral source ready to be stored as a negative: JPEG q95 bytes and their size. */
+    private class NegSource(val bytes: ByteArray, val width: Int, val height: Int)
+
     private class First(val mode: MultiMode, val bitmap: Bitmap) {
         var busy = false
     }
@@ -105,8 +116,10 @@ class CapturePipeline(
     suspend fun processGridCell(input: CaptureInput, settings: CaptureSettings, burstId: Long, index: Int): Result<Uri?> {
         if (!bursts.isLive(burstId)) return Result.failure(GridAborted())
         val last = index == GridComposite.COLS * GridComposite.ROWS - 1
-        val exif = if (last) ExifWriter.plan(ExifWriter.readSource(input.jpeg), settings.software, settings.time) else emptyMap()
+        val exifSource = if (last) ExifWriter.readSource(input.jpeg) else emptyMap()
+        val exif = if (last) ExifWriter.plan(exifSource, settings.software, settings.time) else emptyMap()
         val state = if (last) withGel(input, settings) else settings.state
+        var neg: NegSource? = null
         val r: Result<Uri?> = if (!last) {
             // The guarded body only decodes (idempotent); the store is mutated once, after success.
             guarded { cap, maxTexture ->
@@ -127,9 +140,11 @@ class CapturePipeline(
                 } finally {
                     cell.recycle()
                 }
-                save(renderComposed(whole, settings.preset, state, cap), settings, exif)
+                neg = if (keepNegatives()) compressNeg(whole) else null
+                save(renderComposed(whole, settings.preset, state, cap), settings.time, exif)
             }
         }
+        if (last) r.onSuccess { uri -> if (uri != null) recordNegative(uri, settings, state, NegativeSettings.MODE_GRID, exifSource, neg, null) }
         if (r.isFailure || last) bursts.finish(burstId)
         return r.recoverCatching { if (it is CaptureException && it.cause is GridAborted) throw it.cause!! else throw it }
     }
@@ -202,11 +217,14 @@ class CapturePipeline(
     }
 
     suspend fun process(input: CaptureInput, settings: CaptureSettings): Result<Uri> {
-        val exif = ExifWriter.plan(ExifWriter.readSource(input.jpeg), settings.software, settings.time)
+        val exifSource = ExifWriter.readSource(input.jpeg)
+        val exif = ExifWriter.plan(exifSource, settings.software, settings.time)
         val state = withGel(input, settings)
         return guarded { cap, maxTexture ->
             val out = develop(input, settings.preset, state, cap, maxTexture)
-            save(out, settings, exif).also { PerfLog.shotSaved(settings.preset.id) }
+            save(out, settings.time, exif).also { PerfLog.shotSaved(settings.preset.id) }
+        }.onSuccess { uri ->
+            if (keepNegatives()) recordNegative(uri, settings, state, NegativeSettings.MODE_NORMAL, exifSource, uprightSource(input), null)
         }
     }
 
@@ -232,8 +250,11 @@ class CapturePipeline(
     /** Shot 2: combines it with the stored first (screen blend or diptych), applies grain/frame/stamp once, saves. */
     suspend fun processSecond(input: CaptureInput, settings: CaptureSettings, mode: MultiMode): Result<Uri> {
         require(mode != MultiMode.None)
-        val exif = ExifWriter.plan(ExifWriter.readSource(input.jpeg), settings.software, settings.time)
+        val exifSource = ExifWriter.readSource(input.jpeg)
+        val exif = ExifWriter.plan(exifSource, settings.software, settings.time)
         val state = withGel(input, settings)
+        var neg: NegSource? = null
+        var negBlend: ByteArray? = null
         val f = try {
             borrow(mode)
         } catch (e: FirstExposureMissing) {
@@ -245,13 +266,22 @@ class CapturePipeline(
                 val out = if (mode == MultiMode.Half) {
                     val right = halfBitmap(input, cap, maxTexture)
                     val whole = compose(f.bitmap, right, cap)
+                    neg = if (keepNegatives()) compressNeg(whole) else null
                     renderComposed(whole, settings.preset, state, cap)
                 } else {
+                    // Double exposure has no neutral composite (the blend happens after colour): keep shot 2 and the developed first apart.
+                    negBlend = if (keepNegatives()) compressNeg(f.bitmap, NEGATIVE_BLEND_QUALITY)?.bytes else null
                     develop(input, settings.preset, state, cap, maxTexture, blend = f.bitmap)
                 }
-                save(out, settings, exif)
+                save(out, settings.time, exif)
             }
             saved = r.isSuccess
+            r.onSuccess { uri ->
+                if (keepNegatives()) {
+                    if (mode == MultiMode.Half) recordNegative(uri, settings, state, NegativeSettings.MODE_HALF, exifSource, neg, null)
+                    else recordNegative(uri, settings, state, NegativeSettings.MODE_DOUBLE, exifSource, uprightSource(input), negBlend)
+                }
+            }
             // An OOM that survived the retry loses the pair (SPEC 7.4): free the memory for the next attempt.
             if (r.exceptionOrNull()?.let { it is CaptureException && it.cause is OutOfMemoryError } == true) clearFirst()
             return r
@@ -290,14 +320,14 @@ class CapturePipeline(
         }
     }
 
-    private suspend fun save(out: Bitmap, settings: CaptureSettings, exif: Map<String, String>): Uri {
+    private suspend fun save(out: Bitmap, time: LocalDateTime, exif: Map<String, String>): Uri {
         // The decoded input is recycled and the readback buffer dropped inside develop(); only
         // the output bitmap is alive while JPEG bytes stream into the MediaStore row.
         return withContext(Dispatchers.IO) {
             val t0 = PerfLog.nowNs()
             try {
                 saver.save(
-                    settings.time,
+                    time,
                     writeJpeg = { os ->
                         if (!out.compress(Bitmap.CompressFormat.JPEG, StorageConfig.JPEG_QUALITY, os)) {
                             throw IOException("JPEG encode failed")
@@ -402,9 +432,131 @@ class CapturePipeline(
         return Bitmap.createScaledBitmap(b, maxOf(1, (b.width * k).toInt()), maxOf(1, (b.height * k).toInt()), true)
     }
 
+    // ---- negatives (SPEC 6.9) ----
+
+    private fun compressNeg(b: Bitmap, quality: Int = StorageConfig.NEGATIVE_JPEG_QUALITY): NegSource? = try {
+        val bos = ByteArrayOutputStream(maxOf(64 * 1024, b.byteCount / 12))
+        if (b.compress(Bitmap.CompressFormat.JPEG, quality, bos)) NegSource(bos.toByteArray(), b.width, b.height) else null
+    } catch (e: OutOfMemoryError) {
+        Log.w(TAG, "negative source not compressed (OOM)")
+        null
+    }
+
+    /** Upright camera crop (before any frame crop), at most [NEGATIVE_LONG_SIDE], as JPEG q95; null on failure. */
+    private suspend fun uprightSource(input: CaptureInput): NegSource? = try {
+        val limits = renderer.limits()
+        withContext(Dispatchers.Default) {
+            val bitmap = decode(input.jpeg, NEGATIVE_LONG_SIDE, limits.maxTexture)
+            val rot = ((input.rotationDegrees % 360) + 360) % 360
+            val crop = scaledCrop(bitmap, input)
+            val s = minOf(1f, NEGATIVE_LONG_SIDE.toFloat() / maxOf(crop.width, crop.height))
+            val m = Matrix().apply { postRotate(rot.toFloat()); postScale(s, s) }
+            val up = Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width, crop.height, m, true)
+            if (up !== bitmap) bitmap.recycle()
+            try { compressNeg(up) } finally { up.recycle() }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "negative source failed", e)
+        null
+    } catch (e: OutOfMemoryError) {
+        Log.w(TAG, "negative source failed (OOM)")
+        null
+    }
+
+    /** Stores the negative of a photo that was just saved. A failure here never fails the save. */
+    private suspend fun recordNegative(
+        uri: Uri, settings: CaptureSettings, state: LookState, mode: String, exifSource: Map<String, String>,
+        source: NegSource?, blend: ByteArray?,
+    ) {
+        val store = negatives ?: return
+        if (source == null || !keepNegatives()) return
+        val id = runCatching { ContentUris.parseId(uri) }.getOrNull() ?: return
+        val draft = NegativeSettings(
+            lookId = settings.preset.id, seed = state.seed, grainTime = state.grainTime, frame = state.frame.id,
+            dateStamp = state.dateStampOn, stampTime = NegativeSettings.formatStamp(settings.time), prism = state.prism.name,
+            gel = state.gel.name, captureMode = mode, sourceWidth = source.width, sourceHeight = source.height, exif = exifSource,
+        )
+        withContext(Dispatchers.IO) { store.write(id, draft, source.bytes, blend) }
+    }
+
+    // ---- import / re-develop (SPEC 6.7) ----
+
+    /** What the editor needs to develop a stored source: [sourceJpeg] is upright, [blendJpeg] a developed first exposure. */
+    class EditRequest(
+        val sourceJpeg: ByteArray,
+        val blendJpeg: ByteArray?,
+        /** Look with the editor adjustments already applied ([com.vintagelab.camera.looks.EditAdjust]). */
+        val preset: Preset,
+        val state: LookState,
+        /** Half-frame / grid sources keep their shape: no forced-ratio crop. */
+        val composite: Boolean,
+        val exifSource: Map<String, String>,
+        val software: String,
+        /** Negative to keep for the new photo (source/blend bytes are written as they are). */
+        val negative: NegativeSettings,
+    )
+
+    /** Render cap for imports and edits: the same memory-budgeted cap as the camera path. */
+    suspend fun renderCap(): Int = renderer.limits().let { minOf(it.maxLongSide, capForMemory(memoryClassMb)) }
+
+    /** Renders [source] (kept alive) through the same graph at most [maxLongSide] long, for the editor preview. */
+    suspend fun renderEditPreview(
+        source: Bitmap, blend: Bitmap?, preset: Preset, state: LookState, composite: Boolean, maxLongSide: Int,
+    ): Bitmap {
+        val transform = uprightTransform(source, state.frame, composite)
+        return try {
+            renderer.render(source, transform, preset, state, maxLongSide, blend = blend, recycleInput = false)
+        } catch (e: IllegalStateException) {
+            throw CaptureException(CaptureErrorKind.DevelopFailed, e)
+        }
+    }
+
+    private fun uprightTransform(bitmap: Bitmap, frame: com.vintagelab.camera.looks.FrameId, composite: Boolean): SourceTransform {
+        var crop = IntRect(0, 0, bitmap.width, bitmap.height)
+        if (!composite) crop = FrameGeometry.constrainCrop(crop, 0, frame)
+        return SourceTransform(bitmap.width, bitmap.height, crop, 0, mirror = false)
+    }
+
+    /**
+     * Full-resolution develop of an edit, saved as a NEW photo (the original is never touched), then its negative.
+     * The source is decoded afresh for every attempt (the renderer consumes it, and the OOM retry needs a smaller one).
+     */
+    suspend fun processEdit(req: EditRequest): Result<Uri> {
+        val stamp = NegativeSettings.parseStamp(req.negative.stampTime) ?: LocalDateTime.now()
+        val exif = ExifWriter.plan(req.exifSource, req.software, stamp)
+        return guarded { cap, maxTexture ->
+            val bitmap = withContext(Dispatchers.Default) { decode(req.sourceJpeg, cap, maxTexture) }
+            val blend = req.blendJpeg?.let { b -> withContext(Dispatchers.Default) { decode(b, cap, maxTexture) } }
+            try {
+                val transform = uprightTransform(bitmap, req.state.frame, req.composite)
+                val out = try {
+                    renderer.render(bitmap, transform, req.preset, req.state, cap, blend = blend)
+                } catch (e: IllegalStateException) {
+                    throw CaptureException(CaptureErrorKind.DevelopFailed, e)
+                }
+                // Sorted by save time, not by the photo's original date; the stamp and EXIF keep the original date.
+                save(out, LocalDateTime.now(), exif)
+            } finally {
+                blend?.recycle()
+            }
+        }.onSuccess { uri ->
+            val store = negatives
+            val id = runCatching { ContentUris.parseId(uri) }.getOrNull()
+            if (store != null && id != null && keepNegatives()) {
+                withContext(Dispatchers.IO) { store.write(id, req.negative, req.sourceJpeg, req.blendJpeg) }
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "CapturePipeline"
         const val RETRY_LONG_SIDE = 2048
+
+        /** Long-side cap of a stored negative source (SPEC 6.9). */
+        const val NEGATIVE_LONG_SIDE = 3072
+        const val NEGATIVE_BLEND_QUALITY = 92
         const val MAX_LONG_SIDE = 4096
 
         /** Long-side cap of the stored first exposure (SPEC 7.4): keeps a third buffer affordable. */

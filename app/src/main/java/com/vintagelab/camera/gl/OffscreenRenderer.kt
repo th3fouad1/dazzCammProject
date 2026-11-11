@@ -52,6 +52,8 @@ class OffscreenRenderer(
         blend: Bitmap? = null,
         /** SPEC 7.4: render only the colour work, unframed, without per-image effects (first exposure of a double exposure). */
         firstExposure: Boolean = false,
+        /** Editor preview: keep [bitmap] alive so the same downsampled copy can be rendered again. */
+        recycleInput: Boolean = true,
     ): Bitmap = withContext(dispatcher) {
         ensure()
         val g = graph!!
@@ -68,7 +70,7 @@ class OffscreenRenderer(
 
         val tUp = PerfLog.nowNs()
         var tex = Textures.fromBitmap(bitmap)
-        bitmap.recycle()
+        if (recycleInput) bitmap.recycle()
         var blendTex = if (blend != null) Textures.fromBitmap(blend) else 0
         val target = Fbo(layout.canvasW, layout.canvasH)
         try {

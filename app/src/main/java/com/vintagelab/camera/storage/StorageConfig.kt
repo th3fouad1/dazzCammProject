@@ -13,6 +13,9 @@ object StorageConfig {
     const val MIME_JPEG = "image/jpeg"
     const val JPEG_QUALITY = 92
 
+    /** Quality of a stored negative source (SPEC 6.9). */
+    const val NEGATIVE_JPEG_QUALITY = 95
+
     private val NAME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("'IMG_'yyyyMMdd_HHmmss_SSS'.jpg'")
 
     /** `IMG_yyyyMMdd_HHmmss_SSS.jpg` */

@@ -7,7 +7,9 @@ import com.vintagelab.camera.capture.CapturePipeline
 import com.vintagelab.camera.gl.LutLoader
 import com.vintagelab.camera.gl.OffscreenRenderer
 import com.vintagelab.camera.gl.PreviewHost
+import com.vintagelab.camera.gallery.GalleryRepository
 import com.vintagelab.camera.looks.PresetRepository
+import com.vintagelab.camera.negatives.NegativeStore
 import com.vintagelab.camera.storage.MediaStoreSaver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,11 +23,18 @@ class App : Application() {
     val presets: PresetRepository by lazy { PresetRepository.load(this) }
     val luts: LutLoader by lazy { LutLoader(assets) }
     val saver: MediaStoreSaver by lazy { MediaStoreSaver(contentResolver, packageName) }
+    val gallery: GalleryRepository by lazy { GalleryRepository(contentResolver, packageName) }
+    val negatives: NegativeStore by lazy { NegativeStore(java.io.File(filesDir, "negatives")) }
+
+    /** "Keep negatives" setting (SPEC 6.9); loaded from DataStore by the view model, on by default. */
+    @Volatile
+    var keepNegatives = true
+
     val offscreen: OffscreenRenderer by lazy { OffscreenRenderer(::readAsset, luts, BuildConfig.DEBUG) }
     val capturePipeline: CapturePipeline by lazy {
         val am = getSystemService(ActivityManager::class.java)
         val largeHeap = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_LARGE_HEAP) != 0
-        CapturePipeline(offscreen, saver, if (largeHeap) am.largeMemoryClass else am.memoryClass)
+        CapturePipeline(offscreen, saver, if (largeHeap) am.largeMemoryClass else am.memoryClass, negatives) { keepNegatives }
     }
     val previewHost: PreviewHost by lazy { PreviewHost(::readAsset, luts, BuildConfig.DEBUG) }
 
@@ -33,7 +42,11 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        appScope.launch(Dispatchers.IO) { saver.cleanupPending() }
+        appScope.launch(Dispatchers.IO) {
+            saver.cleanupPending()
+            // Negatives whose photo is gone (deleted in another app, reinstall) are dropped; only if the id query worked and found photos.
+            gallery.allIds()?.takeIf { it.isNotEmpty() }?.let { negatives.prune(it) }
+        }
     }
 
     override fun onTrimMemory(level: Int) {
