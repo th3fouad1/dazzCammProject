@@ -29,7 +29,6 @@ class OffscreenRenderer(
     private var egl: EglCore? = null
     private var graph: RenderGraph? = null
     private var limits = Limits(4096, 4096)
-    private var readBuffer: ByteBuffer? = null
 
     /** [maxLongSide]: render cap; [maxTexture]: largest decodable input texture. */
     data class Limits(val maxLongSide: Int, val maxTexture: Int)
@@ -70,9 +69,9 @@ class OffscreenRenderer(
                 onInputConsumed = { Textures.delete(tex); tex = 0 },
             )
             val bytes = layout.canvasW * layout.canvasH * 4
-            val buf = readBuffer?.takeIf { it.capacity() >= bytes }
-                ?: ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { readBuffer = it }
-            buf.clear()
+            // Not retained across shots: the caller compresses right after, and the readback
+            // buffer must be unreachable by then (SPEC §6.5 memory plan, ≤ 2 full-size buffers).
+            val buf = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.framebuffer)
             GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 4)
             GLES30.glReadPixels(0, 0, layout.canvasW, layout.canvasH, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buf)
@@ -82,6 +81,7 @@ class OffscreenRenderer(
             buf.position(0).limit(bytes)
             val out = Bitmap.createBitmap(layout.canvasW, layout.canvasH, Bitmap.Config.ARGB_8888)
             out.copyPixelsFromBuffer(buf)
+            out.setHasAlpha(false)
             out
         } finally {
             Textures.delete(tex)
@@ -90,9 +90,8 @@ class OffscreenRenderer(
         }
     }
 
-    /** Drops the readback buffer and intermediate targets (onTrimMemory / OOM retry). */
+    /** Drops the intermediate targets (onTrimMemory / OOM retry). */
     suspend fun trim() = withContext(dispatcher) {
-        readBuffer = null
         graph?.trimMemory()
     }
 

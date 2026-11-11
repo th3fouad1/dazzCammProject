@@ -10,6 +10,7 @@ import android.util.Log
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -26,9 +27,11 @@ class MediaStoreSaver(
     private val collection: Uri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
     /**
-     * @param writeExif called with the seekable file descriptor after the JPEG bytes are written.
+     * Streams the photo straight into the pending row: [writeJpeg] gets the row's output stream
+     * (no intermediate byte array), then [writeExif] gets the seekable descriptor. Any failure,
+     * including OutOfMemoryError, deletes the pending row before rethrowing.
      */
-    fun save(jpeg: ByteArray, time: LocalDateTime, writeExif: (FileDescriptor) -> Unit): Uri {
+    fun save(time: LocalDateTime, writeJpeg: (OutputStream) -> Unit, writeExif: (FileDescriptor) -> Unit): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, StorageConfig.fileName(time))
             put(MediaStore.Images.Media.MIME_TYPE, StorageConfig.MIME_JPEG)
@@ -39,20 +42,33 @@ class MediaStoreSaver(
         val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore insert failed")
         try {
             resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
-                FileOutputStream(pfd.fileDescriptor).let { out ->
-                    out.write(jpeg)
-                    out.flush()
-                    out.fd.sync()
-                }
+                val out = FileOutputStream(pfd.fileDescriptor)
+                writeJpeg(out)
+                out.flush()
+                out.fd.sync()
                 writeExif(pfd.fileDescriptor)
             } ?: throw IOException("cannot open $uri")
             val done = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
-            resolver.update(uri, done, null, null)
+            val rows = resolver.update(uri, done, null, null)
+            if (rows != 1) throw IOException("clearing IS_PENDING updated $rows rows")
             return uri
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             runCatching { resolver.delete(uri, null, null) }
-            throw e
+            throw t
         }
+    }
+
+    /** Newest finished photo we own in our folder (K9), or null. */
+    fun newestOwn(): Uri? = try {
+        val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME}=?"
+        val args = arrayOf(StorageConfig.RELATIVE_PATH + "%", ownPackage)
+        val order = "${MediaStore.Images.Media.DATE_TAKEN} DESC"
+        resolver.query(collection, arrayOf(MediaStore.Images.Media._ID), selection, args, order)?.use { c ->
+            if (c.moveToFirst()) Uri.withAppendedPath(collection, c.getLong(0).toString()) else null
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "newest photo query failed", e)
+        null
     }
 
     /** Deletes our own rows left pending by a crash during a previous save. */

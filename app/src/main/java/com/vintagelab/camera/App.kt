@@ -1,10 +1,12 @@
 package com.vintagelab.camera
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.vintagelab.camera.capture.CapturePipeline
 import com.vintagelab.camera.gl.LutLoader
 import com.vintagelab.camera.gl.OffscreenRenderer
+import com.vintagelab.camera.gl.PreviewHost
 import com.vintagelab.camera.looks.PresetRepository
 import com.vintagelab.camera.storage.MediaStoreSaver
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +22,12 @@ class App : Application() {
     val luts: LutLoader by lazy { LutLoader(assets) }
     val saver: MediaStoreSaver by lazy { MediaStoreSaver(contentResolver, packageName) }
     val offscreen: OffscreenRenderer by lazy { OffscreenRenderer(::readAsset, luts, BuildConfig.DEBUG) }
-    val capturePipeline: CapturePipeline by lazy { CapturePipeline(offscreen, saver) }
+    val capturePipeline: CapturePipeline by lazy {
+        val am = getSystemService(ActivityManager::class.java)
+        val largeHeap = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_LARGE_HEAP) != 0
+        CapturePipeline(offscreen, saver, if (largeHeap) am.largeMemoryClass else am.memoryClass)
+    }
+    val previewHost: PreviewHost by lazy { PreviewHost(::readAsset, luts, BuildConfig.DEBUG) }
 
     fun readAsset(path: String): String = assets.open(path).bufferedReader().use { it.readText() }
 

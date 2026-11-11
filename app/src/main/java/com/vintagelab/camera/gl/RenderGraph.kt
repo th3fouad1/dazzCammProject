@@ -56,6 +56,14 @@ class RenderGraph(
     var oesFallback = false
         private set
 
+    /** True when neither OES variant compiled: the camera preview cannot be shown on this GPU. */
+    var oesUnavailable = false
+        private set
+
+    /** True when any pass fell back to passthrough (release builds only). */
+    var passthrough = false
+        private set
+
     /** @param needsOes false for the capture context, which only renders sampler2D input. */
     fun init(hasOesEssl3: Boolean, needsOes: Boolean = true) {
         quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
@@ -65,8 +73,15 @@ class RenderGraph(
         val copy = build(ShaderSources.Pass.COPY, vs3, ShaderSources.Lang.ESSL3, required = true)!!
         for (pass in ShaderSources.Pass.entries) {
             if (pass == ShaderSources.Pass.COPY) continue
-            if (pass == ShaderSources.Pass.PASS0_OES && !needsOes) continue
-            val p = if (pass == ShaderSources.Pass.PASS0_OES) buildOes(hasOesEssl3) else build(pass, vs3, ShaderSources.Lang.ESSL3)
+            if (pass == ShaderSources.Pass.PASS0_OES) {
+                if (!needsOes) continue
+                // Never substitute the sampler2D COPY program for an OES input.
+                val p = buildOes(hasOesEssl3)
+                if (p == null) oesUnavailable = true else programs[pass] = p
+                continue
+            }
+            val p = build(pass, vs3, ShaderSources.Lang.ESSL3)
+            if (p == null) passthrough = true
             programs[pass] = p ?: copy
         }
         programs[ShaderSources.Pass.COPY] = copy
@@ -89,7 +104,7 @@ class RenderGraph(
         }
         oesFallback = true
         Log.w(TAG, "using ESSL 1.00 Pass 0 (GL_OES_EGL_image_external)")
-        return build(ShaderSources.Pass.PASS0_OES, ShaderSources.vertex(ShaderSources.Lang.ESSL1, readAsset), ShaderSources.Lang.ESSL1)
+        return build(ShaderSources.Pass.PASS0_OES, ShaderSources.vertex(ShaderSources.Lang.ESSL1, readAsset), ShaderSources.Lang.ESSL1, required = false)
     }
 
     private fun build(pass: ShaderSources.Pass, vs: String, lang: ShaderSources.Lang, required: Boolean = strict): ShaderProgram? =
@@ -97,7 +112,7 @@ class RenderGraph(
             ShaderProgram.build(pass.name, vs, ShaderSources.fragment(pass, lang, readAsset))
         } catch (e: ShaderException) {
             if (required) throw e
-            Log.e(TAG, "pass ${pass.name} unavailable; passthrough", e)
+            Log.e(TAG, "pass ${pass.name} unavailable", e)
             null
         }
 
@@ -127,7 +142,8 @@ class RenderGraph(
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
 
         // Pass 0 — normalize
-        val p0 = programs.getValue(if (input.oes) ShaderSources.Pass.PASS0_OES else ShaderSources.Pass.PASS0_2D)
+        val p0 = programs[if (input.oes) ShaderSources.Pass.PASS0_OES else ShaderSources.Pass.PASS0_2D]
+            ?: throw IllegalStateException("Pass 0 unavailable for ${if (input.oes) "OES" else "2D"} input")
         a.bind()
         p0.use()
         bindTex(0, if (input.oes) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES30.GL_TEXTURE_2D, input.texture)
