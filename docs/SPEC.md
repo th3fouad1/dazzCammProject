@@ -532,7 +532,7 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
 - Golden: warmth R−B 6 → 25 (temperature 0.45, amber highlight tint 0.3, grain 0.4, vignette 0.35). Accepted.
 - Pocket: exposure +0.3, temp 0.32, sat 1.3, glow/soft focus reduced. Still dark indoors without flash (strong vignette) — re-check in daylight and with flash.
 - Instant / Digi / Mono / Bubble: minor tweaks; Digi stays cool-cyan (LUT-dominated), Mono more contrast, Bubble more saturated.
-- Bug found: swiping on the viewfinder changes look only once per session; carousel taps work. → Phase B fix.
+- Bug found: swiping on the viewfinder changes look only once per session; carousel taps work. → Phase B fix. **Fixed in 1a58677** (stale pointerInput state).
 - Note: `temperature` has a weak effect relative to the film LUT; consider widening its range in the baker.
 
 
@@ -567,4 +567,4 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
 - Open: the capture stage is camera/ISP time (CameraX `CAPTURE_MODE_MINIMIZE_LATENCY` already set; the pipeline also runs an AE-precapture task) and
   is outside the app's control; the total has 1.3 s of headroom. Decide whether to relax that sub-budget to 650 ms or test `ImageCapture` with
   AE precapture skipped. True `EXT_disjoint_timer_query` timing would need a small JNI shim.
-- Observed, not fixed: swiping on the viewfinder still changes the look at most once per session (Appendix C bug); carousel swipes/taps work.
+- Swipe re-verified 2026-11-11 after B.5: works (Golden→Pocket→Instant→Digi). The B.5 report was a false alarm: its UI probe searched English labels while the phone runs in French.
