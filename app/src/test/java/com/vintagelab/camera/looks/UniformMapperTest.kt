@@ -88,6 +88,6 @@ class UniformMapperTest {
     @Test
     fun frameCodes_areDistinct() {
         assertEquals(FrameId.entries.size, FrameId.entries.map { it.code }.toSet().size)
-        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), FrameId.entries.map { it.code })
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6, 7), FrameId.entries.map { it.code })
     }
 }

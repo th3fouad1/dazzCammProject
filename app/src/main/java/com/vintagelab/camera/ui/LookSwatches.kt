@@ -51,6 +51,7 @@ private val SPECS = mapOf(
     "toy120" to SwatchSpec(0xFFE8A04A, 0xFF4FA3B8, 0xFFFFE9A8, 0xFF2E5A3A, 0xFFD2432F, vignette = 0.7f, grain = 0.14f, glow = 0.35f),
     "tlr" to SwatchSpec(0xFF2B7AC0, 0xFFA9D6EE, 0xFFFFF4D8, 0xFF3B6B2E, 0xFFC4381F, vignette = 0.2f, grain = 0.08f),
     "square" to SwatchSpec(0xFFD9B98C, 0xFFEBD3B0, 0xFFFFF0C8, 0xFF8A8F70, 0xFF5C6A74, grain = 0.06f, fade = 0.2f),
+    "pano" to SwatchSpec(0xFF3E7FB8, 0xFFF0C48A, 0xFFFFF0C8, 0xFF2F4A38, 0xFF9C3B22, vignette = 0.25f, grain = 0.10f),
     "fine_mono" to SwatchSpec(0xFFE6E6E6, 0xFF8A8A8A, 0xFFFFFFFF, 0xFF1F1F1F, 0xFF0A0A0A, vignette = 0.15f, grain = 0.06f, mono = true),
 )
 
@@ -98,6 +99,24 @@ fun LookSwatch(lookId: String, modifier: Modifier = Modifier) {
                     addRoundRect(androidx.compose.ui.geometry.RoundRect(b, b, size.width - b, size.height - b, CornerRadius(size.width * 0.03f)))
                 }
                 clipPath(win) { inset(b) { scene(spec, lookId) } }
+            }
+            "pano" -> {
+                scene(spec, lookId)
+                // Dark rebate strips over the top and bottom edge with sprocket holes.
+                val band = size.height * 0.16f
+                val holeW = size.width * 0.07f
+                val holeH = band * 0.55f
+                val pitch = size.width * 0.14f
+                val hole = Color(0xFFDCCDAE)
+                drawRect(Color(0xF00A0908), Offset.Zero, Size(size.width, band))
+                drawRect(Color(0xF00A0908), Offset(0f, size.height - band), Size(size.width, band))
+                var x = pitch * 0.5f
+                while (x < size.width) {
+                    for (cy in floatArrayOf(band / 2f, size.height - band / 2f)) {
+                        drawRoundRect(hole, Offset(x - holeW / 2f, cy - holeH / 2f), Size(holeW, holeH), CornerRadius(holeW * 0.2f))
+                    }
+                    x += pitch
+                }
             }
             "fisheye" -> {
                 drawRect(VlColors.Bench)

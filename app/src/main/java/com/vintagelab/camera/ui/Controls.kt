@@ -77,6 +77,7 @@ import com.vintagelab.camera.capture.MultiMode
 import com.vintagelab.camera.camera.Lens
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
+import com.vintagelab.camera.looks.PrismMode
 import com.vintagelab.camera.ui.icons.VlIcons
 import com.vintagelab.camera.ui.theme.LocalReducedMotion
 import com.vintagelab.camera.ui.theme.VlColors
@@ -169,6 +170,14 @@ fun FlashButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
 }
 
 /** SPEC 7.4 */
+fun prismName(m: PrismMode): Int = when (m) {
+    PrismMode.OFF -> R.string.prism_off
+    PrismMode.SPLIT -> R.string.prism_split
+    PrismMode.TRI -> R.string.prism_tri
+    PrismMode.HALO -> R.string.prism_halo
+}
+
+/** SPEC 7.4 */
 fun gelName(g: FlashGel): Int = when (g) {
     FlashGel.NONE -> R.string.gel_none
     FlashGel.WARM -> R.string.gel_warm
@@ -209,9 +218,10 @@ fun FrameButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
         FrameId.INSTANT_MINI -> VlIcons.FrameInstant to R.string.state_frame_instant_mini
         FrameId.FILM_120 -> VlIcons.FrameStrip to R.string.state_frame_film120
         FrameId.SLIDE_MOUNT -> VlIcons.FrameInstant to R.string.state_frame_slide_mount
+        FrameId.PANO_SPROCKET -> VlIcons.FrameStrip to R.string.state_frame_pano
     }
     ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, enabled = CameraRules.frameEnabled(s), icon = icon) {
-        onIntent(CameraIntent.SetFrame(CameraRules.nextFrame(s.frame, half = s.multiMode == MultiMode.Half)))
+        onIntent(CameraIntent.SetFrame(CameraRules.nextFrame(s.frame, half = MultiShotRules.skipsForcedFrames(s.multi))))
     }
 }
 
@@ -226,8 +236,8 @@ fun DateStampButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
 @Composable
 fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val on = stringResource(R.string.state_on)
-    val off = stringResource(R.string.state_off)
+    val on = stringResource(R.string.toggle_on)
+    val off = stringResource(R.string.toggle_off)
     Box {
         ControlButton(stringResource(R.string.cd_more), null, moreLamp(s), icon = VlIcons.More) { expanded = true }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
@@ -242,6 +252,15 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses:
                 onClick = { onIntent(CameraIntent.ToggleHalfFrame); expanded = false },
             )
             DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_grid), if (s.multiMode == MultiMode.Grid4) on else off)) },
+                enabled = MultiShotRules.canChangeMode(s.multi),
+                onClick = { onIntent(CameraIntent.ToggleGrid); expanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_prism, stringResource(prismName(s.prism)))) },
+                onClick = { onIntent(CameraIntent.CyclePrism) },
+            )
+            DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel)))) },
                 onClick = { onIntent(CameraIntent.CycleFlashGel) },
             )
@@ -250,19 +269,25 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses:
     }
 }
 
-fun moreLamp(s: CameraUiState): Boolean? = if (s.multiMode != MultiMode.None || s.flashGel != FlashGel.NONE) true else null
+fun moreLamp(s: CameraUiState): Boolean? = if (s.multiMode != MultiMode.None || s.flashGel != FlashGel.NONE || s.prism != PrismMode.OFF) true else null
 
 /** Sheet variant of the capture-mode controls (Mini layout). */
 @Composable
 fun CaptureModeButtons(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
-    val on = stringResource(R.string.state_on)
-    val off = stringResource(R.string.state_off)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+    val on = stringResource(R.string.toggle_on)
+    val off = stringResource(R.string.toggle_off)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         TextButton(enabled = MultiShotRules.canChangeMode(s.multi), onClick = { onIntent(CameraIntent.ToggleDoubleExposure) }) {
             Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off), color = VlColors.Ink)
         }
         TextButton(enabled = MultiShotRules.canChangeMode(s.multi), onClick = { onIntent(CameraIntent.ToggleHalfFrame) }) {
             Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off), color = VlColors.Ink)
+        }
+        TextButton(enabled = MultiShotRules.canChangeMode(s.multi), onClick = { onIntent(CameraIntent.ToggleGrid) }) {
+            Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_grid), if (s.multiMode == MultiMode.Grid4) on else off), color = VlColors.Ink)
+        }
+        TextButton(onClick = { onIntent(CameraIntent.CyclePrism) }) {
+            Text(stringResource(R.string.menu_prism, stringResource(prismName(s.prism))), color = VlColors.Ink)
         }
         TextButton(onClick = { onIntent(CameraIntent.CycleFlashGel) }) {
             Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel))), color = VlColors.Ink)
@@ -507,10 +532,11 @@ fun MultiShotChip(s: CameraUiState, onIntent: (CameraIntent) -> Unit, modifier: 
     if (s.multiMode == MultiMode.None) return
     val has = MultiShotRules.holdsFirst(s.multi)
     val canCancel = s.multiExposure == MultiExposure.HasFirst
-    val label = stringResource(
-        if (s.multiMode == MultiMode.Double) R.string.multi_chip_double else R.string.multi_chip_half,
-        if (has) 1 else 0,
-    )
+    val label = when (s.multiMode) {
+        MultiMode.Grid4 -> stringResource(R.string.multi_chip_grid, s.gridShots)
+        MultiMode.Double -> stringResource(R.string.multi_chip_double, if (has) 1 else 0)
+        else -> stringResource(R.string.multi_chip_half, if (has) 1 else 0)
+    }
     val cancelCd = stringResource(R.string.cd_multi_cancel)
     Row(
         modifier
@@ -525,7 +551,7 @@ fun MultiShotChip(s: CameraUiState, onIntent: (CameraIntent) -> Unit, modifier: 
             Box(
                 Modifier.size(44.dp).clickable(role = Role.Button) { onIntent(CameraIntent.CancelFirstExposure) }.semantics { contentDescription = cancelCd },
                 contentAlignment = Alignment.Center,
-            ) { Text("×", style = VlType.labelValue(), color = VlColors.Ink) }
+            ) { Text(stringResource(R.string.glyph_close), style = VlType.labelValue(), color = VlColors.Ink) }
         }
     }
 }

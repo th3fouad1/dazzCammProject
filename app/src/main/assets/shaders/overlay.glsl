@@ -6,7 +6,7 @@ uniform float uShortSide;   // S, px (image area)
 uniform vec2 uCanvasSize;   // px
 uniform vec4 uImageRect;    // canvas uv, y down
 uniform float uFlipY;
-uniform int uFrame;         // 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount
+uniform int uFrame;         // 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount, 7 pano_sprocket
 uniform vec3 uFrameColor;   // instant paper colour
 uniform vec3 uMountColor;   // slide_mount card colour
 uniform vec3 uFilmColor;    // film120 border colour
@@ -14,6 +14,8 @@ uniform vec4 uTicks;        // film120 (pitch, w, h, border) in S
 uniform vec4 uMount;        // slide_mount (window radius, shadow blur, shadow strength, -) in S
 uniform vec2 uMountShadowOff; // slide_mount shadow offset in S
 uniform vec4 uSprocket;     // (pitch, w, h, radius) in S
+uniform vec4 uPano;         // pano_sprocket (pitch, hole w, hole h, rebate) in S
+uniform vec2 uPanoB;        // pano_sprocket (hole radius, bleed length) in S
 uniform vec2 uStampGeom;    // (inset, capHeight) in S
 uniform sampler2D uGhost;  // preview only: low-res first exposure (bitmap rows, top at t = 0)
 uniform float uGhostAlpha;  // 0 = off
@@ -104,6 +106,30 @@ vec3 film120Color(vec2 px, vec2 ip, vec2 rs) {
     return mix(c, vec3(0.62), m);
 }
 
+// pano_sprocket: dark rebate strips over the top and bottom edge of the image with punched sprocket holes
+// (rounded rects, light shows through) and a soft light bleed around each hole. ip = px in image area.
+vec3 panoOverlay(vec3 c, vec2 ip, vec2 rs) {
+    float S = uShortSide;
+    float band = uPano.w * S;
+    float distEdge = min(ip.y, rs.y - ip.y);
+    if (distEdge > band + 1.0) return c;
+    float pitch = uPano.x * S;
+    float n = max(floor(rs.x / pitch), 1.0);
+    float margin = (rs.x - n * pitch) * 0.5;
+    float k = clamp(floor((ip.x - margin) / pitch), 0.0, n - 1.0);
+    float cx = margin + (k + 0.5) * pitch;
+    float cy = ip.y < rs.y * 0.5 ? band * 0.5 : rs.y - band * 0.5;
+    vec2 h = vec2(uPano.y, uPano.z) * 0.5 * S;
+    float d = sdRoundBox(vec2(ip.x - cx, ip.y - cy), h, uPanoB.x * S);
+    float strip = 1.0 - smoothstep(band - 0.75, band + 0.75, distEdge);
+    vec3 rebate = vec3(0.035, 0.032, 0.030);
+    c = mix(c, rebate, strip * 0.96);
+    float bleed = exp(-max(d, 0.0) / (uPanoB.y * S)) * 0.30;
+    c += vec3(1.0, 0.80, 0.52) * bleed * strip;
+    float hole = 1.0 - smoothstep(-0.75, 0.75, d);
+    return clamp(mix(c, vec3(0.86, 0.80, 0.68), hole * strip), 0.0, 1.0);
+}
+
 vec3 frameColor(vec2 px, vec2 ip, vec2 rs) {
     if (uFrame == 1 || uFrame == 3 || uFrame == 4) return uFrameColor;
     if (uFrame == 5) return film120Color(px, ip, rs);
@@ -137,6 +163,7 @@ void main() {
             vec2 gu = vec2(uGhostMirror > 0.5 ? 1.0 - iuv.x : iuv.x, iuv.y);
             c = mix(c, texture(uGhost, gu).rgb, uGhostAlpha);
         }
+        if (uFrame == 7) c = panoOverlay(c, ip, rs);
         if (uFrame == 6) {
             // Rounded window: mount colour outside it, soft drop shadow cast by the mount inside it.
             float S = uShortSide;

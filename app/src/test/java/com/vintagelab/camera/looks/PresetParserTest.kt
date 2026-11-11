@@ -22,7 +22,7 @@ class PresetParserTest {
         val log = Rec()
         val presets = TestAssets.presets(log)
         assertEquals((log.warns + log.errors).toString(), 0, log.warns.size + log.errors.size)
-        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono"), presets.map { it.id })
+        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono", "pano"), presets.map { it.id })
         for (p in presets) {
             val lut = p.lut
             if (lut != null) assertTrue("missing LUT $lut", TestAssets.file("luts/$lut.png").exists())

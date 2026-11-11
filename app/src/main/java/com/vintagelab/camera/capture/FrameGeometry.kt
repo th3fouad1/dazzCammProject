@@ -52,6 +52,18 @@ object FrameGeometry {
     const val SPROCKET_H = 0.04f
     const val SPROCKET_RADIUS = 0.006f
 
+    // pano_sprocket: image forced to 2.7:1; the film edge (dark rebate strip + sprocket holes) is drawn OVER the
+    // top and bottom edge of the image, so the canvas is the image itself.
+    const val PANO_ASPECT = 2.7f
+    const val PANO_REBATE = 0.09f
+    const val PANO_PITCH = 0.075f
+    const val PANO_HOLE_W = 0.035f
+    const val PANO_HOLE_H = 0.05f
+    const val PANO_HOLE_RADIUS = 0.008f
+
+    /** Soft light bleed around each hole (falloff length). */
+    const val PANO_BLEED = 0.012f
+
     // date stamp
     const val STAMP_INSET = 0.04f
     const val STAMP_CAP_HEIGHT = 0.035f
@@ -66,6 +78,7 @@ object FrameGeometry {
      */
     fun forcedAspect(frame: FrameId, imagePortrait: Boolean): Float? = when (frame) {
         FrameId.INSTANT_SQUARE, FrameId.FILM_120 -> 1f
+        FrameId.PANO_SPROCKET -> PANO_ASPECT
         FrameId.INSTANT_MINI -> if (imagePortrait) MINI_ASPECT else 1f / MINI_ASPECT
         else -> null
     }
@@ -119,6 +132,24 @@ object FrameGeometry {
         return CropMath.constrainToAspect(crop, rotationDegrees, aspect)
     }
 
+    /**
+     * Sprocket-hole centres of the pano frame for an image of [imageW]x[imageH] px (SPEC 7.3): x positions of one row
+     * (the same row is mirrored at the top and bottom edge) and the y distance of the row centre from its edge.
+     * Holes sit on a [PANO_PITCH] x S grid, the row centred in the image width. Mirrors the Pass 4 shader.
+     */
+    data class PanoHoles(val xs: List<Float>, val rowCentreFromEdge: Float, val holeW: Float, val holeH: Float, val rebate: Float)
+
+    fun panoHoles(imageW: Int, imageH: Int): PanoHoles {
+        val s = minOf(imageW, imageH).toFloat()
+        val pitch = PANO_PITCH * s
+        val n = kotlin.math.floor(imageW / pitch).toInt()
+        val margin = (imageW - n * pitch) / 2f
+        return PanoHoles(
+            List(n) { margin + (it + 0.5f) * pitch },
+            PANO_REBATE * s / 2f, PANO_HOLE_W * s, PANO_HOLE_H * s, PANO_REBATE * s,
+        )
+    }
+
     private fun bordered(frame: FrameId, imageW: Int, imageH: Int, side: Int, top: Int, bottom: Int) =
         FrameLayout(frame, imageW + 2 * side, imageH + top + bottom, side, top, imageW, imageH)
 
@@ -130,7 +161,7 @@ object FrameGeometry {
         val s = minOf(imageW, imageH).toFloat()
         fun px(f: Float) = (f * s).roundToInt()
         return when (frame) {
-            FrameId.NONE -> FrameLayout(frame, imageW, imageH, 0, 0, imageW, imageH)
+            FrameId.NONE, FrameId.PANO_SPROCKET -> FrameLayout(frame, imageW, imageH, 0, 0, imageW, imageH)
             FrameId.INSTANT_WHITE -> {
                 val side = px(INSTANT_SIDE)
                 val top = px(INSTANT_TOP)

@@ -14,7 +14,7 @@ class ShaderSourcesTest {
         "uCropRect" to "vec4", "uShortSide" to "float", "uOutSize" to "vec2", "uLookLut" to "sampler3D",
         "uLutStrength" to "float", "uGrain" to "vec3", "uGrainTime" to "float", "uVignette" to "vec4",
         "uCenterGlow" to "vec2", "uSoftFocus" to "float", "uBloom" to "vec2", "uSharpen" to "float",
-        "uDistortion" to "vec2", "uLeak" to "vec4", "uLeakPos" to "vec2", "uDust" to "float", "uSeed" to "float",
+        "uDistortion" to "vec2", "uPrism" to "vec2", "uLeak" to "vec4", "uLeakPos" to "vec2", "uDust" to "float", "uSeed" to "float",
         "uFrame" to "int", "uStampColor" to "vec4", "uStampOn" to "float", "uStampDigits" to "vec4",
     )
 

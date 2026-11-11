@@ -248,6 +248,7 @@ class RenderGraph(
         p.set2f("uBloom", u.bloom.x, u.bloom.y)
         p.set1f("uSharpen", u.sharpen)
         p.set2f("uDistortion", u.distortion.x, u.distortion.y)
+        p.set2f("uPrism", u.prism.x, u.prism.y)
         p.set4f("uLeak", u.leak.x, u.leak.y, u.leak.z, u.leak.w)
         p.set2f("uLeakPos", u.leakPos.x, u.leakPos.y)
         p.set1f("uDust", u.dust)
@@ -267,6 +268,8 @@ class RenderGraph(
         p.set4f("uTicks", FrameGeometry.F120_TICK_PITCH, FrameGeometry.F120_TICK_W, FrameGeometry.F120_TICK_H, FrameGeometry.F120_BORDER)
         p.set4f("uMount", FrameGeometry.MOUNT_RADIUS, FrameGeometry.MOUNT_SHADOW_BLUR, FrameGeometry.MOUNT_SHADOW_STRENGTH, 0f)
         p.set2f("uMountShadowOff", FrameGeometry.MOUNT_SHADOW_OFFSET_X, FrameGeometry.MOUNT_SHADOW_OFFSET_Y)
+        p.set4f("uPano", FrameGeometry.PANO_PITCH, FrameGeometry.PANO_HOLE_W, FrameGeometry.PANO_HOLE_H, FrameGeometry.PANO_REBATE)
+        p.set2f("uPanoB", FrameGeometry.PANO_HOLE_RADIUS, FrameGeometry.PANO_BLEED)
         p.set2f("uStampGeom", FrameGeometry.STAMP_INSET, FrameGeometry.STAMP_CAP_HEIGHT)
     }
 

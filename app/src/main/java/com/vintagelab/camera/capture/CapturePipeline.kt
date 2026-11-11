@@ -55,6 +55,9 @@ class CaptureException(val kind: CaptureErrorKind, cause: Throwable?) : Exceptio
 /** The stored first exposure is gone (trim, background, OOM): the pair restarts (SPEC 7.4). */
 class FirstExposureMissing : Exception("first exposure missing")
 
+/** The grid burst was dropped (failure, background, new burst): later cells of it are ignored (SPEC 7.4). */
+class GridAborted : Exception("grid burst aborted")
+
 /**
  * Capture path (SPEC §6.5): decode sRGB → same render graph at the memory-budgeted cap →
  * JPEG q92 streamed into the pending MediaStore row + EXIF. The whole render/compress/save
@@ -74,8 +77,87 @@ class CapturePipeline(
         var busy = false
     }
 
+    private class Grid(val burstId: Long, val aspect: Float) {
+        val cells = ArrayList<Bitmap>(GridComposite.COLS * GridComposite.ROWS)
+    }
+
     private val lock = Any()
     private var first: First? = null
+    private var grid: Grid? = null
+
+    /** Drops the cells of an unfinished grid burst. */
+    fun clearGrid() {
+        synchronized(lock) {
+            val g = grid ?: return
+            grid = null
+            g.cells.forEach { it.recycle() }
+            g.cells.clear()
+        }
+    }
+
+    /**
+     * One picture of a multi-lens grid (SPEC 7.4). Cells 0..2 are developed into small upright bitmaps and kept;
+     * the last one composes the 2x2 grid (gaps [GridComposite.GAP] x S), runs the graph once over it (look, grain, frame,
+     * stamp) and saves. Success carries the saved Uri for the last cell, null otherwise.
+     * Cells of a burst that was aborted meanwhile fail with [GridAborted].
+     */
+    suspend fun processGridCell(input: CaptureInput, settings: CaptureSettings, burstId: Long, index: Int): Result<Uri?> {
+        val last = index == GridComposite.COLS * GridComposite.ROWS - 1
+        val exif = if (last) ExifWriter.plan(ExifWriter.readSource(input.jpeg), settings.software, settings.time) else emptyMap()
+        val state = if (last) withGel(input, settings) else settings.state
+        val r = guarded { cap, maxTexture ->
+            val storeCap = minOf(cap, STORE_LONG_SIDE)
+            val known = synchronized(lock) { grid?.takeIf { it.burstId == burstId } }
+            if (index == 0) clearGrid() else if (known == null || known.cells.size != index) throw GridAborted()
+            val cell = gridCell(input, storeCap, maxTexture, known?.aspect)
+            val g = synchronized(lock) {
+                val cur = grid?.takeIf { it.burstId == burstId } ?: Grid(burstId, cell.second).also { grid = it }
+                if (cur.cells.size != index) { cell.first.recycle(); throw GridAborted() }
+                cur.cells.add(cell.first)
+                cur
+            }
+            if (!last) null else {
+                val whole = composeGrid(g, storeCap)
+                clearGrid()
+                save(renderComposed(whole, settings.preset, state, cap), settings, exif)
+            }
+        }
+        if (r.isFailure || last) clearGrid()
+        return r.recoverCatching { if (it is CaptureException && it.cause is GridAborted) throw it.cause!! else throw it }
+    }
+
+    /** One upright cell at the grid's cell size for [storeCap]; returns the bitmap and the cell aspect (w/h). */
+    private suspend fun gridCell(input: CaptureInput, storeCap: Int, maxTexture: Int, aspect: Float?): Pair<Bitmap, Float> {
+        val bitmap = decodeBitmap(input, storeCap, maxTexture)
+        val rot = ((input.rotationDegrees % 360) + 360) % 360
+        val swaps = rot == 90 || rot == 270
+        val crop0 = scaledCrop(bitmap, input)
+        val a = aspect ?: (if (swaps) crop0.height.toFloat() / crop0.width else crop0.width.toFloat() / crop0.height)
+        val c = CropMath.constrainToAspect(crop0, rot, a)
+        val uprightH = if (swaps) c.width else c.height
+        val layout = GridComposite.layout(a, storeCap)
+        val s = minOf(1f, layout.cellH.toFloat() / uprightH)
+        val m = Matrix().apply { postRotate(rot.toFloat()); postScale(s, s) }
+        val cell = Bitmap.createBitmap(bitmap, c.left, c.top, c.width, c.height, m, true)
+        if (cell !== bitmap) bitmap.recycle()
+        return cell to a
+    }
+
+    /** Draws the cells row-major on a dark base; recycles them (the grid is final). */
+    private fun composeGrid(g: Grid, cap: Int): Bitmap {
+        val l = GridComposite.layout(g.aspect, cap)
+        val whole = Bitmap.createBitmap(l.canvasW, l.canvasH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(whole)
+        canvas.drawColor(0xFF000000.toInt() or Diptych.GAP_COLOR)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+        synchronized(lock) {
+            g.cells.forEachIndexed { i, b ->
+                if (b.isRecycled) throw GridAborted()
+                canvas.drawBitmap(b, null, Rect(l.cellX(i), l.cellY(i), l.cellX(i) + l.cellW, l.cellY(i) + l.cellH), paint)
+            }
+        }
+        return whole
+    }
 
     /** True while a first exposure for [mode] is held. */
     fun hasFirst(mode: MultiMode): Boolean = synchronized(lock) { first?.mode == mode }

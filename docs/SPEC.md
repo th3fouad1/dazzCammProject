@@ -265,7 +265,7 @@ Filename `IMG_yyyyMMdd_HHmmss_SSS.jpg`. `SAVE_FOLDER` is a constant in `StorageC
 | `distortion` | `{barrel:[0,1], circularMask:bool}` | 0 / false |
 | `lightLeak` | `{probability:[0,1], amount:[0,1], variants:[0..3]}` | probability 0 |
 | `dust` | [0,1] | 0 |
-| `defaultFrame` | `"none"\|"instant_white"\|"film_strip"\|"instant_square"\|"instant_mini"\|"film120"\|"slide_mount"` | none |
+| `defaultFrame` | `"none"\|"instant_white"\|"film_strip"\|"instant_square"\|"instant_mini"\|"film120"\|"slide_mount"\|"pano_sprocket"` | none |
 | `dateStamp` | `{enabledByDefault:bool, color:"#RRGGBB"}` | false, #FF8A1F |
 
 Validation: out-of-range → clamp + WARN; duplicate/missing id → skip + ERROR; malformed JSON → built-in
@@ -298,10 +298,16 @@ Drawn in Pass 4 in both paths (D6), geometry from `capture/FrameGeometry.kt` (S 
   every 4th taller) centred in the bottom border; procedural rectangles, no font.
 - `slide_mount`: 0.12 S cream (#EDE9DF) mount on all sides, window corners rounded r = 0.03 S (image pixels outside the
   rounded rect become mount colour), faint inner drop shadow (offset 0.006/0.010 S, blur 0.012 S, 30 %) cast onto the image.
-- Forced ratios (square, mini, film120): `FrameGeometry.constrainCrop` -> `CropMath.constrainToAspect` shrinks the centred
+- `pano_sprocket` (Sprint B4): image forced to **2.7:1 landscape** (also in a portrait UI: the crop is 2.7:1 wide and the viewfinder
+  letterboxes it). The canvas is the image itself (no margin); the film edge is drawn **over** the top and bottom edge of the image:
+  a near-black rebate strip 0.09 S high (96 % opaque) holding rounded-rect sprocket holes (0.035 x 0.05 S, radius 0.008 S, pitch 0.075 S,
+  row centred in the image width, centre 0.045 S from the edge) that show warm light (#DBCDAD), plus a soft warm light bleed around each
+  hole (falloff 0.012 S, confined to the strip). S = image short side. Geometry in `FrameGeometry` (`PANO_*`, `panoHoles`), shader in Pass 4 (`panoOverlay`).
+  The look `pano` ("Wide 35": LUT `kodak_ektar_100`, vignette 0.25, grain 0.3) has it as default frame.
+- Forced ratios (square, mini, film120, pano): `FrameGeometry.constrainCrop` -> `CropMath.constrainToAspect` shrinks the centred
   source crop to the forced upright aspect. It is applied to the CameraX crop rect in the preview renderer and to the
   scaled crop in `CapturePipeline`, so both paths crop identically; `canvasAspect` ignores the ratio button for these frames.
-- Frame codes (`uFrame`): 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount.
+- Frame codes (`uFrame`): 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount, 7 pano_sprocket.
 - Date stamp: capture time, format `'yy MM dd`, bottom-right of the image area, inset 0.04 S, cap height 0.035 S,
   colour from preset, slight glow. Glyphs: procedural SDF 7-segment in the shader (no font asset).
 
@@ -345,8 +351,27 @@ amount 0.35 / radius 0.55 if the look has none) and the whole frame gets a cast 
 The front screen-flash overlay is tinted with the gel. The preview is unchanged except for a coloured dot on the flash icon.
 In a pair, the gel of shot 2 applies to the combined image; shot 1's flash is not tinted.
 
-### 7.5 Decisions (B3)
-See D11-D14 in section 11.
+**Multi-lens grid (Sprint B4).** `MultiMode.Grid4`, armed from the More menu. One shutter press runs a **burst of 4** pictures,
+`MultiShotRules.GRID_INTERVAL_MS` = 150 ms apart; each is accepted as soon as the previous `ImageProxy` is closed (`takePicture`
+returns the in-memory JPEG after the close), so the existing capture-queue rules apply and a slow develop only stretches the spacing.
+Phases: `Waiting` (armed) -> `Burst` (`gridShots` 0..4) -> `Waiting`. Like `SecondInFlight`, **no cancel and no mode toggle once the
+burst started** (`canChangeMode`); the ratio is locked during the burst; any failure aborts the whole grid (one error, `GridAborted` for
+late cells). Backgrounding aborts it. Indicator chip `Grid n/4` (n = pictures taken).
+Cells: each picture is cropped to the upright camera crop (`constrainToAspect` to the first cell's aspect) and scaled into one small
+bitmap (canvas long side <= `STORE_LONG_SIDE` 3072 and <= the memory cap, so 4 cells ~ 28 MB). The last picture composes the 2x2
+grid on the CPU (`GridComposite.layout`: cells row-major, gap = 0.01 S, S = canvas short side, dark base #101010) and sends it through
+the normal graph with an identity transform: look, prism, grain, frame and date stamp run **once** over the composite; EXIF comes from the last picture.
+Frames that force a ratio (square, mini, roll, pano) are skipped while armed (as in half-frame).
+
+**Prism lens (Sprint B4).** `PrismMode` Off/Split/Tri/Halo, a persisted user setting (DataStore key `prism`, not part of a look),
+cycled from the More menu. Uniform `vec2 uPrism` = (mode code, amount 1), Pass 1 only (`fxPrism` in `geometry.glsl`, after the barrel
+distortion and before the circular mask). All offsets are normalized (image uv or short-side units divided by the aspect), so preview
+and capture match; it is off in `ParityTest`. Split: the right-hand side is mirrored about x = 0.60 (soft blend over 0.10 each way, 60 %);
+Tri: three copies displaced 0.05 S at 90, 210, 330 degrees, weight 1/3 each; Halo: 9-tap radial zoom blur (to 0.88x) confined to a ring
+0.18-0.36 S (in) and 0.52-0.80 S (out) around the centre, 85 %. Half-frame/grid composites get the prism once over the whole canvas.
+
+### 7.5 Decisions (B3, B4)
+See D11-D14 and D15-D18 in section 11.
 
 ## 8. Behaviour & failure handling
 
@@ -429,6 +454,10 @@ pipeline stays.
 | D12 | double exposure = screen blend in Pass 3 before glow/grain; first shot rendered without per-image effects so they run once | Accepted | 2026-11-11 |
 | D13 | half-frame = CPU diptych (0.72 halves, 0.015 S gap) fed through the normal graph; ratio forced 4:3 and ratio-forcing frames skipped while armed | Accepted | 2026-11-11 |
 | D14 | flash gel is a DataStore user setting, applied only if a flash fired (EXIF bit or screen flash); no presets.json change | Accepted | 2026-11-11 |
+| D15 | pano_sprocket draws the film edge over the image (canvas = image), forced 2.7:1; look `pano` "Wide 35" | Accepted | 2026-11-11 |
+| D16 | prism lens = Pass 1 geometry effect in normalized units, user setting (not a look field), off in parity tests | Accepted | 2026-11-11 |
+| D17 | multi-lens grid = burst of 4 (150 ms), CPU 2x2 composite (gap 0.01 S) through the normal graph; no cancel once started | Accepted | 2026-11-11 |
+| D18 | languages: English (default) + French only, always the system language, no in-app picker; `localeConfig` lists en, fr; app-owned string names must not collide with library names (`state_on`/`state_off` renamed `toggle_on`/`toggle_off`, which had picked up the system "Désactivé") | Accepted (owner) | 2026-11-11 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |

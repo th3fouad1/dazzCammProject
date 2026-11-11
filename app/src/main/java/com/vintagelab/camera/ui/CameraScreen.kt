@@ -108,6 +108,7 @@ fun CameraScreen(
         when (state.multiMode) {
             MultiMode.Double -> announce(res.getString(R.string.a11y_double_on))
             MultiMode.Half -> announce(res.getString(R.string.a11y_half_on))
+            MultiMode.Grid4 -> announce(res.getString(R.string.a11y_grid_on))
             MultiMode.None -> Unit
         }
     }

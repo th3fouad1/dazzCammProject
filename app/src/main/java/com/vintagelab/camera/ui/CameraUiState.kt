@@ -13,6 +13,7 @@ import com.vintagelab.camera.capture.MultiShotState
 import com.vintagelab.camera.capture.MultiShotRules
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
+import com.vintagelab.camera.looks.PrismMode
 
 enum class TimerMode(val seconds: Int) { OFF(0), S3(3), S10(10) }
 
@@ -103,10 +104,14 @@ data class CameraUiState(
     val multiDropSeq: Long = 0L,
     /** SPEC 7.4: user-selected flash gel (persisted); applied only when a flash fires. */
     val flashGel: FlashGel = FlashGel.NONE,
+    /** SPEC 7.4: grid burst progress, pictures taken so far (0..4). */
+    val gridShots: Int = 0,
+    /** SPEC 7.4: prism lens (persisted). */
+    val prism: PrismMode = PrismMode.OFF,
 )
 
 /** The multi-shot slice of the UI state as a pure value. */
-val CameraUiState.multi: MultiShotState get() = MultiShotState(multiMode, multiExposure)
+val CameraUiState.multi: MultiShotState get() = MultiShotState(multiMode, multiExposure, gridShots)
 
 sealed interface CameraIntent {
     data class SelectLook(val id: String) : CameraIntent
@@ -121,6 +126,8 @@ sealed interface CameraIntent {
     /** SPEC 7.4 */
     data object ToggleDoubleExposure : CameraIntent
     data object ToggleHalfFrame : CameraIntent
+    data object ToggleGrid : CameraIntent
+    data object CyclePrism : CameraIntent
     data object CancelFirstExposure : CameraIntent
     data object CycleFlashGel : CameraIntent
     data object Shuffle : CameraIntent
@@ -175,7 +182,7 @@ object CameraRules {
 
     fun frameEnabled(s: CameraUiState): Boolean = !MultiShotRules.frameLocked(s.multi)
 
-    /** Frame cycle order; half-frame skips frames that force a ratio (each half is already cropped to 0.72). */
+    /** Frame cycle order; half-frame and grid skip frames that force a ratio (the composite has its own shape). */
     fun nextFrame(current: FrameId, half: Boolean): FrameId {
         var f = current
         repeat(FrameId.entries.size) {

@@ -41,6 +41,7 @@ import com.vintagelab.camera.capture.FrameGeometry
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.LookState
+import com.vintagelab.camera.looks.PrismMode
 import com.vintagelab.camera.looks.PresetRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -83,13 +84,20 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private var boundKey: Any? = null
     private var countdownJob: Job? = null
 
-    private class ShotJob(val input: CaptureInput, val settings: CaptureSettings, val kind: ShotKind, val mode: MultiMode, val bgEpoch: Int)
+    private class ShotJob(
+        val input: CaptureInput, val settings: CaptureSettings, val kind: ShotKind, val mode: MultiMode, val bgEpoch: Int,
+        val burstId: Long = 0L, val index: Int = 0,
+    )
 
     private val jobs = Channel<ShotJob>(capacity = 1)
     /** Bumped when the app goes to the background: a first exposure that finishes later is dropped (SPEC 7.4). */
     @Volatile private var bgEpoch = 0
     private var ghost: Bitmap? = null
     private var taking = false
+    private var gridSeq = 0L
+
+    /** Burst id that failed or was dropped; the burst loop and its late cells stop on it. */
+    private var gridAbortedId = 0L
     private var outstanding = 0
     private var errorSeq = 0L
     private var focusSeq = 0L
@@ -130,6 +138,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     frame = prefs[KEY_FRAME]?.let { FrameId.fromId(it) } ?: preset.defaultFrame,
                     dateStamp = prefs[KEY_STAMP] ?: preset.dateStamp.enabledByDefault,
                     flashGel = prefs[KEY_GEL]?.let { g -> FlashGel.entries.firstOrNull { it.name == g } } ?: s.flashGel,
+                    prism = prefs[KEY_PRISM]?.let { g -> PrismMode.entries.firstOrNull { it.name == g } } ?: s.prism,
                     lastShot = s.lastShot ?: lastShot,
                 )
             }
@@ -180,6 +189,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             CameraIntent.ToggleDoubleExposure -> toggleMulti(MultiMode.Double)
             CameraIntent.ToggleHalfFrame -> toggleMulti(MultiMode.Half)
+            CameraIntent.ToggleGrid -> toggleMulti(MultiMode.Grid4)
+            CameraIntent.CyclePrism -> {
+                _state.update { it.copy(prism = it.prism.next()) }
+                persist()
+            }
             CameraIntent.CancelFirstExposure -> {
                 if (!MultiShotRules.canChangeMode(_state.value.multi)) return
                 applyMulti(MultiShotRules.cancel(_state.value.multi))
@@ -314,7 +328,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // ---- shutter / capture ----
 
-    private fun canAccept() = !taking && outstanding < MultiShotRules.maxOutstanding(_state.value.multi)
+    private fun canAccept() = !taking && outstanding < MultiShotRules.maxOutstanding(_state.value.multi) &&
+        _state.value.multiExposure != MultiExposure.Burst
 
     private fun shutter() {
         val s = _state.value
@@ -360,6 +375,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 stampCodes = DateStamp.codes(now).toList(),
                 grainTime = renderer?.lastGrainTime ?: 0f,
                 gel = s.flashGel,
+                prism = s.prism,
             ),
             time = now,
             software = app.getString(R.string.app_name),
@@ -368,6 +384,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val kind = MultiShotRules.nextShot(s.multi)
         val mode = s.multiMode
         val epoch = bgEpoch
+        if (kind == ShotKind.Grid) {
+            startGridBurst(settings, epoch)
+            return
+        }
         if (kind == ShotKind.Second) {
             // Reserve the pair atomically at the shutter: discard/toggles are rejected from now on.
             val m = MultiShotRules.beginSecond(s.multi)
@@ -406,6 +426,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 ShotKind.Normal -> pipeline.process(job.input, job.settings)
                 ShotKind.First -> pipeline.processFirst(job.input, job.settings, job.mode)
                 ShotKind.Second -> pipeline.processSecond(job.input, job.settings, job.mode)
+                ShotKind.Grid -> pipeline.processGridCell(job.input, job.settings, job.burstId, job.index)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -430,6 +451,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 }.onFailure {
                     applyMulti(MultiShotRules.onFirstFailed(m))
                     failed(it)
+                }
+                ShotKind.Grid -> result.onSuccess { uri ->
+                    if (job.index == MultiShotRules.GRID_SHOTS - 1 && uri is Uri) {
+                        endGrid(job.burstId)
+                        saved(uri)
+                    }
+                }.onFailure {
+                    // Only the first failure of a burst is reported; later cells of it fail silently.
+                    if (abortGrid(job.burstId)) failed(it)
                 }
                 ShotKind.Second -> result.onSuccess {
                     applyMulti(MultiShotRules.onSecondSaved(m))
@@ -456,6 +486,71 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // ---- multi-shot modes (SPEC 7.4) ----
 
+    /**
+     * Grid burst: [MultiShotRules.GRID_SHOTS] pictures, each accepted as soon as the previous ImageProxy is closed
+     * (takePicture returns after that), [MultiShotRules.GRID_INTERVAL_MS] apart. Cells are developed by the normal job
+     * queue. No cancel once started; any failure aborts the whole grid.
+     */
+    private fun startGridBurst(settings: CaptureSettings, epoch: Int) {
+        val burst = ++gridSeq
+        val m = MultiShotRules.beginBurst(_state.value.multi)
+        _state.update { it.copy(multiExposure = m.phase, gridShots = m.gridShots, lookSeed = Random.nextLong()) }
+        publishCaptureState()
+        refreshPreviewLook()
+        viewModelScope.launch {
+            for (i in 0 until MultiShotRules.GRID_SHOTS) {
+                if (gridAbortedId == burst) return@launch
+                taking = true
+                val input = try {
+                    controller.takePicture()
+                } catch (e: CancellationException) {
+                    taking = false
+                    abortGrid(burst)
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "grid takePicture failed", e)
+                    taking = false
+                    if (abortGrid(burst)) fail(CaptureErrorKind.DevelopFailed)
+                    return@launch
+                }
+                taking = false
+                outstanding++
+                val next = MultiShotRules.burstShotTaken(_state.value.multi)
+                _state.update { it.copy(gridShots = next.gridShots) }
+                publishCaptureState()
+                try {
+                    jobs.send(ShotJob(input, settings, ShotKind.Grid, MultiMode.Grid4, epoch, burst, i))
+                } catch (e: CancellationException) {
+                    outstanding--
+                    abortGrid(burst)
+                    throw e
+                } catch (e: Exception) {
+                    outstanding--
+                    if (abortGrid(burst)) fail(CaptureErrorKind.DevelopFailed)
+                    return@launch
+                }
+                if (i < MultiShotRules.GRID_SHOTS - 1) delay(MultiShotRules.GRID_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** Grid finished (saved or aborted): back to armed. */
+    private fun endGrid(burst: Long) {
+        if (burst != gridSeq) return
+        val m = MultiShotRules.endBurst(_state.value.multi)
+        _state.update { it.copy(multiExposure = m.phase, gridShots = m.gridShots) }
+        app.capturePipeline.clearGrid()
+    }
+
+    /** Fails the burst once; returns true for the call that aborted it (the one that reports the error). */
+    private fun abortGrid(burst: Long): Boolean {
+        if (burst != gridSeq || gridAbortedId == burst) return false
+        gridAbortedId = burst
+        endGrid(burst)
+        publishCaptureState()
+        return true
+    }
+
     private fun abortSecond(kind: ShotKind) {
         if (kind == ShotKind.Second) {
             val m = MultiShotRules.abortSecond(_state.value.multi)
@@ -467,6 +562,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         if (!MultiShotRules.canChangeMode(_state.value.multi)) return
         val step = MultiShotRules.toggle(_state.value.multi, mode)
         applyMulti(step)
+        if (step.state.mode == MultiMode.Grid4) {
+            // The composite has its own shape: ratio-forcing frames are skipped while armed.
+            _state.update { it.copy(frame = MultiShotRules.enforceFrame(it.multi, it.frame, it.frame)) }
+            persist()
+        }
         if (step.state.mode == MultiMode.Half) {
             // Each half is cropped to 0.72 from a 4:3 frame; ratio and ratio-forcing frames are not used.
             _state.update {
@@ -486,6 +586,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             it.copy(
                 multiMode = step.state.mode,
                 multiExposure = step.state.phase,
+                gridShots = step.state.gridShots,
                 multiDropSeq = if (notify && step.discardedFirst) it.multiDropSeq + 1 else it.multiDropSeq,
             )
         }
@@ -504,6 +605,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         renderer?.ghost = null
         val m = _state.value.multi
         if (m.phase == MultiExposure.HasFirst) applyMulti(MultiShotRules.onDropped(m), notify = true)
+        if (m.phase == MultiExposure.Burst) abortGrid(gridSeq)
+        app.capturePipeline.clearGrid()
     }
 
     /** Trim or OOM may have emptied the store behind our back. */
@@ -537,7 +640,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val s = _state.value
         renderer?.look = PreviewLook(
             repo.get(s.lookId),
-            LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList()),
+            LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList(), prism = s.prism),
         )
     }
 
@@ -552,6 +655,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 p[KEY_FRAME] = s.frame.id
                 p[KEY_STAMP] = s.dateStamp
                 p[KEY_GEL] = s.flashGel.name
+                p[KEY_PRISM] = s.prism.name
             }
         }
     }
@@ -573,5 +677,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val KEY_FRAME = stringPreferencesKey("frame")
         val KEY_STAMP = booleanPreferencesKey("dateStamp")
         val KEY_GEL = stringPreferencesKey("flashGel")
+        val KEY_PRISM = stringPreferencesKey("prism")
     }
 }

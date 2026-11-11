@@ -618,6 +618,13 @@ Front lens with flash on: the UI implements CameraX `ImageCapture.ScreenFlash` (
 - Otherwise the keys keep their system behaviour (volume) on Licenses, PermissionGate and when the camera is not Ready.
 - A key-down shows the shutter's pressed state, so the user sees what happened.
 
+### 6.10 Prism lens, multi-lens grid, pano look (Sprint B4)
+- **More menu order**: `Double exposure`, `Half-frame`, `Multi-lens grid` (each `: On/Off`), `Prism lens: Off|Split|Tri|Halo` (each press cycles and keeps the menu open), `Flash gel: <name>`, `Open-source licenses`. The More lamp also lights while the prism is on. In the Mini controls sheet the same items are stacked text buttons.
+- **Grid chip**: `Grid n/4` (same chip as 6.9, no cancel button: the burst cannot be cancelled once started). The shutter shows the normal "Developing…" busy state during the burst.
+- **Locks**: grid skips ratio-forcing frames like half-frame; ratio is locked during the burst only.
+- **Pano look**: swatch is the horizon card with dark top/bottom strips and sprocket holes. The viewfinder letterboxes the 2.7:1 image in portrait (frame button reads `Panorama strip`).
+- **Layout**: the camera layout stays forced LTR (a camera UI is not mirrored, see 4.5); text uses start/end arrangement.
+
 ### 6.9 Capture modes (Sprint B3)
 Original controls; reach the modes from **More options** (the "⋯" menu in the top bar, or the controls sheet in Mini layout). No new top-bar button.
 - **More menu items** (in this order): `Double exposure: On/Off`, `Half-frame: On/Off`, `Flash gel: <name>` (each press cycles none › warm › red › blue › green and keeps the menu open), then `Open-source licenses`. Double exposure and Half-frame are mutually exclusive; choosing one disarms the other and discards any held first shot. The More lamp is lit while a mode or a gel is active.
@@ -773,7 +780,7 @@ Look display names are **approved as temporary working names**. They are string-
 | `menu_half_frame` | Half-frame |
 | `menu_toggle_state` | %1$s: %2$s |
 | `menu_flash_gel` | Flash gel: %1$s |
-| `state_on` / `state_off` | On / Off |
+| `toggle_on` / `toggle_off` | On / Off (renamed from `state_on`/`state_off`, which collide with androidx names and showed the system French "Désactivé") |
 | `state_flash_with_gel` | %1$s, %2$s gel |
 | `gel_none` / `gel_warm` / `gel_red` / `gel_blue` / `gel_green` | No gel / Warm / Red / Blue / Green |
 | `multi_chip_double` | Double exposure %1$d/2 |
@@ -783,6 +790,21 @@ Look display names are **approved as temporary working names**. They are string-
 | `a11y_half_on` | Half-frame on. Take the first shot. |
 | `a11y_first_kept` | First shot kept. Take the second. |
 | `msg_first_dropped` | First shot discarded. |
+
+**Sprint B4 strings**
+
+All user-visible text lives in `res/values/strings.xml` with a complete `res/values-fr/strings.xml` (checked by `StringResourcesTest`; look names are identical in both). Languages: English and French only, following the system language; `res/xml/locales_config.xml` lists `en`, `fr` (per-app language in Android settings, Android 13+); no in-app picker.
+
+| key | English |
+|---|---|
+| `look_pano` | Wide 35 |
+| `state_frame_pano` | Panorama strip |
+| `menu_grid` | Multi-lens grid |
+| `menu_prism` | Prism lens: %1$s |
+| `prism_off` / `prism_split` / `prism_tri` / `prism_halo` | Off / Split / Tri / Halo |
+| `multi_chip_grid` | Grid %1$d/4 |
+| `a11y_grid_on` | Grid on. One press takes four photos. |
+| `glyph_close` | × (not translatable) |
 
 ---
 

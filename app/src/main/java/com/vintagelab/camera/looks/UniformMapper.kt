@@ -20,6 +20,8 @@ data class LookState(
     val grainTime: Float = 0f,
     /** Flash gel applied to this shot (capture only; NONE in the preview). */
     val gel: FlashGel = FlashGel.NONE,
+    /** Prism lens (user setting, not a look); OFF in the parity test. */
+    val prism: PrismMode = PrismMode.OFF,
 )
 
 /**
@@ -51,6 +53,7 @@ data class UniformSet(
     val canvasSize: Vec2 = Vec2(1f, 1f),               // uCanvasSize (px)
     val imageRect: Vec4 = Vec4(0f, 0f, 1f, 1f),        // uImageRect (canvas uv, y down)
     val gel: Vec4 = Vec4(1f, 1f, 1f, 0f),            // uGel (rgb tint, strength); strength 0 = no gel
+    val prism: Vec2 = Vec2(0f, PrismMode.AMOUNT),     // uPrism (mode code, amount); mode 0 = off
 )
 
 /** Pure `Preset → UniformSet` mapping (SPEC §7.2). Frozen interface after Phase A. */
@@ -98,6 +101,7 @@ object UniformMapper {
             stampColor = Vec4(stamp.r, stamp.g, stamp.b, 1f),
             stampOn = if (state.dateStampOn) 1f else 0f,
             stampDigits = state.stampCodes.map { it.toFloat() },
+            prism = Vec2(state.prism.code.toFloat(), PrismMode.AMOUNT),
         ).withGel(state.gel)
     }
 
