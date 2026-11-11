@@ -19,6 +19,7 @@ import kotlin.math.pow
  */
 object LookLutBaker {
     private const val N = LutLayout.SIZE
+    const val TEMP_GAIN = 0.25f
 
     /** @param filmLut interleaved RGB floats of an N³ cube (see [LutLayout]) or null for identity. */
     fun bakeFloat(preset: Preset, filmLut: FloatArray?): FloatArray {
@@ -45,9 +46,13 @@ object LookLutBaker {
             }
             // White balance: +temperature warms (R up, B down), +tint shifts to magenta (G down).
             if (preset.temperature != 0f || preset.tint != 0f) {
-                c[0] *= 1f + 0.12f * preset.temperature
-                c[2] *= 1f - 0.12f * preset.temperature
+                // temperature +-1 is roughly +-1500 K-equivalent: R/B gains of 1 -/+ 0.25, luma renormalized.
+                val l0 = luma(c)
+                c[0] *= 1f + TEMP_GAIN * preset.temperature
+                c[2] *= 1f - TEMP_GAIN * preset.temperature
                 c[1] *= 1f - 0.08f * preset.tint
+                val l1 = luma(c)
+                if (l1 > 1e-5f && l0 > 0f) { val k = l0 / l1; c[0] *= k; c[1] *= k; c[2] *= k }
                 clamp01(c)
             }
             curveR?.let { c[0] = it.eval(c[0]) }

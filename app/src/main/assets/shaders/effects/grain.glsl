@@ -21,8 +21,14 @@ vec3 fxGrain(vec3 c, vec2 p, vec3 grain, float time, float seed) {
     // New grain field every 1/24 s in preview; capture reuses the last presented time.
     float frame = floor(time * 24.0);
     vec2 off = vec2(fxHash(vec2(frame, 1.0), seed), fxHash(vec2(frame, 2.0), seed)) * 256.0;
-    vec2 q = p / grain.y + off;
-    float n = fxGradientNoise(q, 0.17) * 0.8 + fxGradientNoise(q * 2.03, 0.29) * 0.35;
+    // Band-limit: the field lives on a reference lattice (short side 1080 px) whose cells are never
+    // finer than 3 ref px, so the finest octave stays under ~0.5 cycles/px at preview resolution and
+    // full-res output is just a smooth upsample of the same field (preview/capture parity).
+    float cell = max(grain.y, 4.0 / 1080.0);
+    vec2 q = p / cell + off;
+    float w2 = clamp((cell * 1080.0 / 2.03 - 3.5) / 1.5, 0.0, 1.0);
+    float n = (fxGradientNoise(q, 0.17) * 0.8 + fxGradientNoise(q * 2.03, 0.29) * 0.35 * w2)
+        * (0.873 / sqrt(0.64 + 0.1225 * w2 * w2));
     vec3 nc = vec3(fxGradientNoise(q, 0.31), fxGradientNoise(q, 0.43), fxGradientNoise(q, 0.59));
     vec3 nn = mix(vec3(n), nc, grain.z);
     float l = fxLuma(c);

@@ -147,6 +147,7 @@ private fun Viewfinder(previewHost: PreviewHost) {
 private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Unit, swipeHorizontal: Boolean) {
     val img = FrameGeometry.imageRectInCanvas(s.ratio, s.frame, s.imagePortrait)
     val state by rememberUpdatedState(s)
+    val imgNow by rememberUpdatedState(img)
     val density = LocalDensity.current
     var tap by remember { mutableStateOf<Offset?>(null) }
     val currentLook = s.looks.firstOrNull { it.id == s.lookId }
@@ -183,6 +184,8 @@ private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Uni
                         if (currentLook?.hasRandomFx == true) add(CustomAccessibilityAction(shuffleLbl) { onIntent(CameraIntent.Shuffle); true })
                     }
                 }
+                // The block is keyed only on orientation, so everything that changes (look, ratio, frame)
+                // must be read through state/imgNow at gesture end, never captured from the composition.
                 .pointerInput(swipeHorizontal) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
@@ -213,6 +216,9 @@ private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Uni
                         val dx = (last.x - start.x) / density.density
                         val dy = (last.y - start.y) / density.density
                         val dt = maxOf(1L, lastTime - t0) / 1000f
+                        val img = imgNow
+                        val looksNow = state.looks
+                        val indexNow = looksNow.indexOfFirst { it.id == state.lookId }
                         val travel = if (swipeHorizontal) dx else dy
                         val cross = if (swipeHorizontal) dy else dx
                         if (abs(travel) < 10f && abs(cross) < 10f) {
@@ -224,7 +230,9 @@ private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Uni
                                 onIntent(CameraIntent.TapFocus(nx, ny))
                             }
                         } else if (abs(travel) > abs(cross)) {
-                            SwipeRules.target(travel, travel / dt, inSystemGesture, index, s.looks.size)?.let { if (it != index) selectAt(it) }
+                            SwipeRules.target(travel, travel / dt, inSystemGesture, indexNow, looksNow.size)?.let {
+                                if (it != indexNow) looksNow.getOrNull(it)?.let { l -> onIntent(CameraIntent.SelectLook(l.id)) }
+                            }
                         }
                     }
                 },
