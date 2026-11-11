@@ -654,3 +654,15 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
   is outside the app's control; the total has 1.3 s of headroom. Decide whether to relax that sub-budget to 650 ms or test `ImageCapture` with
   AE precapture skipped. True `EXT_disjoint_timer_query` timing would need a small JNI shim.
 - Swipe re-verified 2026-11-11 after B.5: works (Golden→Pocket→Instant→Digi). The B.5 report was a false alarm: its UI probe searched English labels while the phone runs in French.
+
+## Appendix E — v1.1 device verification (2026-11-11, OnePlus 11)
+| check | result |
+|---|---|
+| Share from viewer | PASS — system chooser opens with the image preview (URI grant OK) |
+| Import JPEG 4000×3000 stored + EXIF Orientation=6 | PASS — editor and saved file upright (3000×4000, Orientation=1) |
+| Import HEIC 5000×7000 | PASS — decoded, capped to 2925×4096, upright |
+| Delete from viewer (API 35 `createDeleteRequest`) | PASS — system dialog, file removed, negative removed, count 58→57 |
+| Negatives prune after deleting photos outside the app | PASS — 7 → 4 negatives on next launch |
+| Viewer paging stress (25 fast swipes) | PASS — no crash, PSS stable |
+Risk R7 (ImageDecoder orientation / HEIC) closed.
+
