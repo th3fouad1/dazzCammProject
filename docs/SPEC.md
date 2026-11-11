@@ -6,7 +6,7 @@
 | Owner | Project owner (the user) — approves looks, names, scope |
 | Integrator / reviewer | Claude (main session) |
 | Related | `docs/reviews/spec-review-v0.1.md` (Goldfish review), `docs/DESIGN.md` (pending, Visual Storyteller), `third_party/t3mujinpack/NOTICE.md` |
-| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) |
+| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) · v0.2.2 Sprint A.1: contract K1–K17 (§6.2), next-shot rule (§5.3), capture memory (§6.5) |
 
 > **Read §5 (pipeline & parity) first** — it is the hard constraint.
 
@@ -127,7 +127,9 @@ vs sampler2D conversion of the same chart within the same tolerance.
   `EXT_disjoint_timer_query` where available. Render size = min(view, stream), dynamic scale down to 0.6× allowed.
 - Shutter-to-saved (tap after timer → `IS_PENDING=0`, median of 10 at ~12 MP) ≤ 2.5 s:
   capture ≤ 600 ms, decode ≤ 300, upload+render ≤ 400, readback ≤ 150, compose ≤ 150, encode+write ≤ 700.
-- Shutter-to-next-shot ≤ 0.5 s. During a capture render preview may drop to ≥ 15 fps.
+- Next shot: accepted as soon as the previous ImageProxy is closed (bytes copied), while render/save continue.
+  At most 1 render job runs and at most 1 decoded job waits; when that queue is full the shutter shows "developing".
+  During a capture render preview may drop to ≥ 15 fps.
 
 ## 6. Architecture
 
@@ -159,7 +161,26 @@ data class CameraUiState(
   permission: Granted | Denied | PermanentlyDenied, lastShot: Uri?)
 ```
 Intents: SelectLook, ToggleLens, CycleFlash, SetRatio, SetTimer, CancelTimer, SetFrame,
-ToggleDateStamp, Shuffle, Shutter, TapFocus(x,y), Zoom(f). Persist lookId, ratio, flash, timer,
+ToggleDateStamp, Shuffle, Shutter, TapFocus(x,y), Zoom(f).
+
+*Contract additions (Sprint A.1, DESIGN §10.4 K1–K17; code: `ui/CameraUiState.kt`):*
+- State: `zoomRatio`, `zoomRange` (K1); `focus: FocusUi?(nx, ny, Focusing|Locked|Failed, seq)` (K2);
+  `camera: Opening|Ready|Error(InUse|Disabled|Fatal|GpuUnsupported)` (K3); `captureState.Error(kind: SaveFailed|StorageFull|DevelopFailed, seq)`
+  replaces `Error(msg)` (K4); `caps: CameraCaps(hasBack, hasFront, hasFlashUnit, screenFlash)` (K5);
+  `looks: List<LookUi(id, displayNameRes, hasRandomFx)>` (K6); `renderMode: Normal|Passthrough` (K7);
+  `imagePortrait` from the ViewPort's display rotation (K14); `developing` = shots not yet saved (0..2).
+  `Processing` now means "the shutter cannot accept a shot" (§5.3).
+- Intents: `PermissionResult(granted, canAskAgain)`, `RefreshPermission(granted)` (K8; refresh only moves to/from Granted);
+  `RetryCamera` (K3); `LastShotUnavailable` (K9; cold start seeds `lastShot` with our newest row).
+  `TapFocus(x, y)` = normalized [0,1]² in the **image area** (frame margin excluded), upright display orientation (K10).
+- Interfaces: `gl/PreviewHost` = `createView(context)` + `events: Flow<FirstFrame|LookApplied|GpuUnsupported|Passthrough>` (K11);
+  `CameraController.setScreenFlash(ScreenFlash?)`, front lens uses `FLASH_MODE_SCREEN` when flash ≠ OFF (K12);
+  `FrameGeometry.canvasAspect(ratio, frame, imagePortrait)` and `imageRectInCanvas(...)` (K13);
+  `MainActivity` forwards camera key (always) and volume keys (not under TalkBack) on key-up (K15);
+  `CameraController` follows 180° display flips via `DisplayListener`; under rotation lock capture follows the display (K16).
+- K17 (integrator): the capture job uses an immutable `CaptureSettings` snapshot taken at the shutter (after the timer); the seed re-rolls
+  at that moment. Lens/Ratio are disabled only while a picture is being taken (rebind would abort it), not while queued jobs render.
+- U3: `configChanges` also includes `density|uiMode`. U7: `MediaActionSound.SHUTTER_CLICK` plays on every capture. Persist lookId, ratio, flash, timer,
 frame, dateStamp with DataStore Preferences. Selecting a look resets frame/dateStamp to the preset defaults.
 
 ### 6.3 GL lifecycle & threading
@@ -200,6 +221,10 @@ frame, dateStamp with DataStore Preferences. Selecting a look resets frame/dateS
   **No tiling in v1** (D3).
 - Memory: upload then `recycle()` the decoded bitmap; RGBA8 FBO; reused direct ByteBuffer readback;
   one ARGB_8888 output bitmap. ≤ 2 full-size buffers alive; target peak ≤ 160 MB.
+- *Sprint A.1:* the readback buffer is allocated per shot and dropped before compression; JPEG bytes stream straight into the
+  pending MediaStore descriptor (no byte-array copy). The render cap is `min(GL limits, capForMemory(memoryClass))`
+  (half the heap class for the two 8 B/px buffers, clamped 2048–4096). The whole render/compress/save attempt is retried once
+  at 2048 on OOM. `update(IS_PENDING=0)` must return 1 row, otherwise the row is deleted and the save fails.
 
 ### 6.6 Storage (API 29+ only)
 Insert with `RELATIVE_PATH = Pictures/<SAVE_FOLDER>` and `IS_PENDING=1`, write, set `IS_PENDING=0`;
@@ -295,6 +320,9 @@ Manifest: `android.hardware.camera.any` required; `camera.flash`, `camera.autofo
   and androidx.test:runner 1.7.0. Robolectric is **not** used, because every §9.1 unit test is plain JVM.
   `app/lint.xml` ignores only version-upgrade checks (GradleDependency, NewerVersionAvailable,
   AndroidGradlePluginVersion, OldTargetApi), since this section pins those versions.
+- *Sprint A.1 approvals:* core-ktx 1.17.0, lifecycle-runtime-compose / lifecycle-viewmodel-compose 2.9.4, androidx.test ext-junit 1.3.0 /
+  runner 1.7.0. IBM Plex Mono Medium/SemiBold (OFL 1.1, from github.com/IBM/plex) bundled in `res/font/`, license in
+  `assets/licenses/ibm_plex_mono_ofl.txt`.
 
 ### 9.1 Tests
 - `PresetParserTest`: valid file; missing field → default; out-of-range → clamp; duplicate id skipped; malformed → identity.

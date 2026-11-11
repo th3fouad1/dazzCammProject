@@ -1,9 +1,14 @@
 package com.vintagelab.camera.camera
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.media.MediaActionSound
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.util.Rational
 import android.util.Size
+import android.view.Display
 import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -35,16 +40,23 @@ import androidx.camera.core.AspectRatio as CxAspectRatio
 
 enum class Lens { BACK, FRONT }
 
-enum class FlashMode(val cameraX: Int) {
-    OFF(ImageCapture.FLASH_MODE_OFF), ON(ImageCapture.FLASH_MODE_ON), AUTO(ImageCapture.FLASH_MODE_AUTO)
-}
+enum class FlashMode { OFF, ON, AUTO }
 
 /** What the current binding supports (for hiding controls). */
-data class CameraCapabilities(val hasFlash: Boolean, val hasFront: Boolean, val hasBack: Boolean)
+data class CameraCapabilities(val hasFlash: Boolean, val hasFront: Boolean, val hasBack: Boolean, val screenFlash: Boolean, val lens: Lens)
+
+/** Camera-layer status, mapped to UI CameraStatus by the ViewModel. */
+sealed interface CameraEvent {
+    data object Opening : CameraEvent
+    data object Ready : CameraEvent
+    data class Failed(val inUse: Boolean, val disabled: Boolean) : CameraEvent
+    data class ZoomChanged(val linear: Float, val ratio: Float, val min: Float, val max: Float) : CameraEvent
+}
 
 /**
  * CameraX wrapper (SPEC §5.2, §6.5, §8): Preview + ImageCapture in one UseCaseGroup with a shared
- * ViewPort for the selected ratio; focus, zoom, flash. All calls on the main thread.
+ * ViewPort for the selected ratio; focus, zoom, flash (incl. screen flash, K12), and
+ * 180° display flips (K16). All calls on the main thread.
  */
 class CameraController(private val context: Context) {
     private var provider: ProcessCameraProvider? = null
@@ -52,11 +64,32 @@ class CameraController(private val context: Context) {
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var surfaceProvider: Preview.SurfaceProvider? = null
+    private var owner: LifecycleOwner? = null
+    private var lens = Lens.BACK
+    private var flash = FlashMode.OFF
+    private var screenFlash: ImageCapture.ScreenFlash? = null
     private val mainExecutor = ContextCompat.getMainExecutor(context)
     private val captureExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "capture-io") }
+    private val sound = MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) }
+    private val displayManager = context.getSystemService(DisplayManager::class.java)
 
-    /** Called with a user-facing reason when the camera reports an error. */
-    var onCameraError: ((String) -> Unit)? = null
+    var onEvent: ((CameraEvent) -> Unit)? = null
+
+    /** K16: 180° flips don't change configuration; follow the display rotation directly. */
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            val r = displayManager.getDisplay(displayId)?.rotation ?: return
+            preview?.targetRotation = r
+            imageCapture?.targetRotation = r
+        }
+    }
+
+    init {
+        displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+    }
 
     suspend fun bind(
         owner: LifecycleOwner,
@@ -66,6 +99,7 @@ class CameraController(private val context: Context) {
         displayRotation: Int,
         surfaceProvider: Preview.SurfaceProvider,
     ): CameraCapabilities {
+        onEvent?.invoke(CameraEvent.Opening)
         val p = provider ?: ProcessCameraProvider.awaitInstance(context).also { provider = it }
         p.unbindAll()
         val hasBack = p.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
@@ -87,7 +121,6 @@ class CameraController(private val context: Context) {
         val captureUseCase = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setOutputFormat(ImageCapture.OUTPUT_FORMAT_JPEG)
-            .setFlashMode(if (useLens == Lens.FRONT) ImageCapture.FLASH_MODE_OFF else flash.cameraX)
             .setTargetRotation(displayRotation)
             .setResolutionSelector(
                 ResolutionSelector.Builder()
@@ -98,6 +131,7 @@ class CameraController(private val context: Context) {
                     .build(),
             )
             .build()
+        screenFlash?.let { captureUseCase.screenFlash = it }
         val portrait = displayRotation == Surface.ROTATION_0 || displayRotation == Surface.ROTATION_180
         val (rw, rh) = ratio.upright(portrait)
         val viewPort = ViewPort.Builder(Rational(rw, rh), displayRotation)
@@ -109,22 +143,41 @@ class CameraController(private val context: Context) {
             .addUseCase(captureUseCase)
             .build()
         val cam = p.bindToLifecycle(owner, selector, group)
+        this.owner = owner
+        this.lens = useLens
         camera = cam
         preview = previewUseCase
         imageCapture = captureUseCase
         this.surfaceProvider = surfaceProvider
+        setFlash(flash)
         cam.cameraInfo.cameraState.removeObservers(owner)
-        cam.cameraInfo.cameraState.observe(owner) { state ->
-            val err = state.error ?: return@observe
-            Log.w(TAG, "camera error ${err.code} (${state.type})")
-            if (state.type == CameraState.Type.CLOSED || err.code == CameraState.ERROR_CAMERA_DISABLED ||
-                err.code == CameraState.ERROR_CAMERA_FATAL_ERROR || err.code == CameraState.ERROR_CAMERA_IN_USE ||
-                err.code == CameraState.ERROR_MAX_CAMERAS_IN_USE || err.code == CameraState.ERROR_OTHER_RECOVERABLE_ERROR
-            ) {
-                onCameraError?.invoke("camera error ${err.code}")
-            }
+        cam.cameraInfo.cameraState.observe(owner) { state -> onEvent?.invoke(map(state)) }
+        cam.cameraInfo.zoomState.removeObservers(owner)
+        cam.cameraInfo.zoomState.observe(owner) { z ->
+            onEvent?.invoke(CameraEvent.ZoomChanged(z.linearZoom, z.zoomRatio, z.minZoomRatio, z.maxZoomRatio))
         }
-        return CameraCapabilities(cam.cameraInfo.hasFlashUnit() && useLens == Lens.BACK, hasFront, hasBack)
+        return CameraCapabilities(
+            hasFlash = cam.cameraInfo.hasFlashUnit() && useLens == Lens.BACK,
+            hasFront = hasFront,
+            hasBack = hasBack,
+            screenFlash = useLens == Lens.FRONT,
+            lens = useLens,
+        )
+    }
+
+    private fun map(state: CameraState): CameraEvent {
+        val err = state.error
+        if (err != null) {
+            Log.w(TAG, "camera error ${err.code} (${state.type})")
+            val inUse = err.code == CameraState.ERROR_CAMERA_IN_USE || err.code == CameraState.ERROR_MAX_CAMERAS_IN_USE
+            val disabled = err.code == CameraState.ERROR_CAMERA_DISABLED
+            // Recoverable errors while still opening are transient; report them as Opening.
+            if (!inUse && !disabled && err.type == CameraState.ErrorType.RECOVERABLE && state.type != CameraState.Type.CLOSED) {
+                return CameraEvent.Opening
+            }
+            return CameraEvent.Failed(inUse, disabled)
+        }
+        return if (state.type == CameraState.Type.OPEN) CameraEvent.Ready else CameraEvent.Opening
     }
 
     /** After a GL context loss: makes CameraX issue a fresh SurfaceRequest. */
@@ -133,32 +186,58 @@ class CameraController(private val context: Context) {
         preview?.setSurfaceProvider(mainExecutor, sp)
     }
 
-    fun setFlash(flash: FlashMode) {
-        imageCapture?.flashMode = flash.cameraX
+    /** K12: the UI-owned ScreenFlash used for the front lens when flash ≠ OFF. */
+    fun setScreenFlash(flash: ImageCapture.ScreenFlash?) {
+        screenFlash = flash
+        imageCapture?.screenFlash = flash
+        setFlash(this.flash)
+    }
+
+    fun setFlash(mode: FlashMode) {
+        flash = mode
+        val ic = imageCapture ?: return
+        ic.flashMode = when {
+            lens == Lens.FRONT && mode != FlashMode.OFF && screenFlash != null -> ImageCapture.FLASH_MODE_SCREEN
+            lens == Lens.FRONT -> ImageCapture.FLASH_MODE_OFF
+            mode == FlashMode.ON -> ImageCapture.FLASH_MODE_ON
+            mode == FlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
+            else -> ImageCapture.FLASH_MODE_OFF
+        }
     }
 
     fun setLinearZoom(z: Float) {
         camera?.cameraControl?.setLinearZoom(z.coerceIn(0f, 1f))
     }
 
-    /** Tap-to-focus at a point in preview buffer pixels; auto-cancels after 3 s. */
-    fun focus(x: Float, y: Float, bufWidth: Int, bufHeight: Int) {
+    /** Tap-to-focus at a point in preview buffer pixels; auto-cancels after 3 s. Result → [onResult]. */
+    fun focus(x: Float, y: Float, bufWidth: Int, bufHeight: Int, onResult: (Boolean) -> Unit) {
         val cam = camera ?: return
         val pv = preview ?: return
         val factory = SurfaceOrientedMeteringPointFactory(bufWidth.toFloat(), bufHeight.toFloat(), pv)
         val action = FocusMeteringAction.Builder(factory.createPoint(x, y), FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
             .setAutoCancelDuration(3, TimeUnit.SECONDS)
             .build()
-        cam.cameraControl.startFocusAndMetering(action)
+        val future = cam.cameraControl.startFocusAndMetering(action)
+        future.addListener({
+            val ok = runCatching { future.get().isFocusSuccessful }.getOrDefault(false)
+            onResult(ok)
+        }, mainExecutor)
     }
 
-    /** In-memory JPEG capture; the ImageProxy is closed as soon as its bytes are copied. */
+    /**
+     * In-memory JPEG capture; returns once the bytes are copied and the ImageProxy is closed.
+     * Plays the platform shutter click (U7: always on).
+     */
     suspend fun takePicture(): CaptureInput {
         val ic = imageCapture ?: throw IllegalStateException("camera not bound")
         return suspendCancellableCoroutine { cont ->
             ic.takePicture(
                 captureExecutor,
                 object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureStarted() {
+                        sound.play(MediaActionSound.SHUTTER_CLICK)
+                    }
+
                     override fun onCaptureSuccess(image: ImageProxy) {
                         val result = try {
                             val buf = image.planes[0].buffer
@@ -185,6 +264,15 @@ class CameraController(private val context: Context) {
     fun unbind() {
         provider?.unbindAll()
         camera = null
+        preview = null
+        imageCapture = null
+    }
+
+    fun release() {
+        unbind()
+        displayManager.unregisterDisplayListener(displayListener)
+        sound.release()
+        captureExecutor.shutdown()
     }
 
     private companion object {

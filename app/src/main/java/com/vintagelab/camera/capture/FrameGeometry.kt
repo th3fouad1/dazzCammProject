@@ -1,6 +1,8 @@
 package com.vintagelab.camera.capture
 
+import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
+import com.vintagelab.camera.looks.Vec4
 import kotlin.math.roundToInt
 
 /**
@@ -24,6 +26,27 @@ object FrameGeometry {
     // date stamp
     const val STAMP_INSET = 0.04f
     const val STAMP_CAP_HEIGHT = 0.035f
+
+    /** Reference short side for resolution-independent UI geometry. */
+    private const val REF_SHORT = 3000
+
+    private fun refLayout(ratio: AspectRatio, frame: FrameId, imagePortrait: Boolean): FrameLayout {
+        val long = REF_SHORT * ratio.long / ratio.short
+        val (w, h) = if (imagePortrait) REF_SHORT to long else long to REF_SHORT
+        return layout(frame, w, h)
+    }
+
+    /** Width / height of the output canvas **including the frame margin** (DESIGN §4.1, approved contract). */
+    fun canvasAspect(ratio: AspectRatio, frame: FrameId, imagePortrait: Boolean): Float {
+        val l = refLayout(ratio, frame, imagePortrait)
+        return l.canvasW.toFloat() / l.canvasH
+    }
+
+    /** K13: the image area inside the canvas, normalized (x, y-down, w, h). */
+    fun imageRectInCanvas(ratio: AspectRatio, frame: FrameId, imagePortrait: Boolean): Vec4 {
+        val r = refLayout(ratio, frame, imagePortrait).imageRectUv()
+        return Vec4(r[0], r[1], r[2], r[3])
+    }
 
     /**
      * Largest layout (never upscaling the [srcW]×[srcH] image) whose canvas fits [maxW]×[maxH].

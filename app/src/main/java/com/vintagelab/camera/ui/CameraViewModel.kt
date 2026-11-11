@@ -3,6 +3,7 @@ package com.vintagelab.camera.ui
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import androidx.camera.core.ImageCapture
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -15,11 +16,17 @@ import androidx.lifecycle.viewModelScope
 import com.vintagelab.camera.App
 import com.vintagelab.camera.R
 import com.vintagelab.camera.camera.CameraController
+import com.vintagelab.camera.camera.CameraEvent
 import com.vintagelab.camera.camera.FlashMode
 import com.vintagelab.camera.camera.Lens
+import com.vintagelab.camera.capture.CaptureErrorKind
+import com.vintagelab.camera.capture.CaptureException
+import com.vintagelab.camera.capture.CaptureInput
 import com.vintagelab.camera.capture.CaptureSettings
 import com.vintagelab.camera.capture.DateStamp
 import com.vintagelab.camera.gl.GlPreviewRenderer
+import com.vintagelab.camera.gl.PreviewEvent
+import com.vintagelab.camera.gl.PreviewHost
 import com.vintagelab.camera.gl.PreviewLook
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
@@ -28,6 +35,7 @@ import com.vintagelab.camera.looks.PresetRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,47 +50,76 @@ import kotlin.random.Random
 
 private val Context.settings: DataStore<Preferences> by preferencesDataStore(name = "camera_settings")
 
-/** Single owner of camera UI state (SPEC §6.2) and of the look seed (SPEC §5.2). */
+/**
+ * Single owner of camera UI state (SPEC §6.2) and of the look seed (SPEC §5.2).
+ *
+ * Capture flow (SPEC §5.3 as amended, K17): at the shutter an immutable [CaptureSettings]
+ * snapshot is taken and the seed is re-rolled. The next shot is accepted as soon as the previous
+ * ImageProxy is closed; at most one render job runs and at most one decoded job waits. When the
+ * queue is full the shutter shows "developing".
+ */
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as App
     private val controller = CameraController(application)
     private var presets: PresetRepository? = null
+    val previewHost: PreviewHost = app.previewHost
 
     private val _state = MutableStateFlow(CameraUiState(lookSeed = Random.nextLong()))
     val state: StateFlow<CameraUiState> = _state.asStateFlow()
-
-    private val _previewLook = MutableStateFlow<PreviewLook?>(null)
-    val previewLook: StateFlow<PreviewLook?> = _previewLook.asStateFlow()
 
     private var owner: LifecycleOwner? = null
     private var renderer: GlPreviewRenderer? = null
     private var displayRotation = 0
     private var boundKey: Any? = null
     private var countdownJob: Job? = null
-    private var captureJob: Job? = null
+
+    private val jobs = Channel<Pair<CaptureInput, CaptureSettings>>(capacity = 1)
+    private var taking = false
+    private var outstanding = 0
+    private var errorSeq = 0L
+    private var focusSeq = 0L
 
     init {
-        controller.onCameraError = { msg -> _state.update { it.copy(cameraError = msg) } }
+        controller.onEvent = ::onCameraEvent
+        previewHost.onRendererReady = { r ->
+            renderer = r
+            boundKey = null
+            refreshPreviewLook()
+            rebindIfNeeded()
+        }
+        previewHost.onContextLost = { controller.resetSurfaceProvider() }
+        viewModelScope.launch {
+            previewHost.events.collect { e ->
+                when (e) {
+                    PreviewEvent.GpuUnsupported -> _state.update { it.copy(camera = CameraStatus.Error(CameraErrorKind.GpuUnsupported)) }
+                    PreviewEvent.Passthrough -> _state.update { it.copy(renderMode = RenderMode.Passthrough) }
+                    else -> Unit
+                }
+            }
+        }
         viewModelScope.launch {
             val repo = withContext(Dispatchers.IO) { app.presets }
             presets = repo
             val prefs = withContext(Dispatchers.IO) { app.settings.data.first() }
+            val lastShot = withContext(Dispatchers.IO) { app.saver.newestOwn() }
             val lookId = prefs[KEY_LOOK]?.takeIf { id -> repo.presets.any { it.id == id } } ?: repo.default.id
             val preset = repo.get(lookId)
             _state.update { s ->
                 s.copy(
-                    looks = repo.presets.map { LookItem(it.id, it.displayNameRes) },
+                    looks = repo.presets.map { LookUi(it.id, it.displayNameRes, it.lightLeak.probability > 0f || it.dust > 0f) },
                     lookId = lookId,
                     ratio = prefs[KEY_RATIO]?.let { r -> AspectRatio.entries.firstOrNull { it.name == r } } ?: s.ratio,
                     flash = prefs[KEY_FLASH]?.let { f -> FlashMode.entries.firstOrNull { it.name == f } } ?: s.flash,
                     timer = prefs[KEY_TIMER]?.let { t -> TimerMode.entries.firstOrNull { it.name == t } } ?: s.timer,
                     frame = prefs[KEY_FRAME]?.let { FrameId.fromId(it) } ?: preset.defaultFrame,
                     dateStamp = prefs[KEY_STAMP] ?: preset.dateStamp.enabledByDefault,
+                    lastShot = s.lastShot ?: lastShot,
                 )
             }
             refreshPreviewLook()
             rebindIfNeeded()
         }
+        app.appScope.launch { for ((input, settings) in jobs) develop(input, settings) }
     }
 
     fun onIntent(intent: CameraIntent) {
@@ -93,25 +130,24 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 persist()
             }
             CameraIntent.ToggleLens -> {
+                if (!CameraRules.lensRatioEnabled(_state.value)) return
                 _state.update { it.copy(lens = if (it.lens == Lens.BACK) Lens.FRONT else Lens.BACK, zoom = 0f) }
                 rebindIfNeeded()
             }
             CameraIntent.CycleFlash -> {
-                val next = when (_state.value.flash) {
-                    FlashMode.OFF -> FlashMode.ON
-                    FlashMode.ON -> FlashMode.AUTO
-                    FlashMode.AUTO -> FlashMode.OFF
-                }
+                val next = CameraRules.nextFlash(_state.value.flash, _state.value.lens)
                 _state.update { it.copy(flash = next) }
                 controller.setFlash(next)
                 persist()
             }
             is CameraIntent.SetRatio -> {
+                if (!CameraRules.lensRatioEnabled(_state.value)) return
                 _state.update { it.copy(ratio = intent.ratio) }
                 persist()
                 rebindIfNeeded()
             }
             is CameraIntent.SetTimer -> {
+                if (!CameraRules.timerEnabled(_state.value)) return
                 _state.update { it.copy(timer = intent.timer) }
                 persist()
             }
@@ -126,56 +162,84 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             CameraIntent.Shuffle -> _state.update { it.copy(lookSeed = Random.nextLong()) }
             CameraIntent.Shutter -> shutter()
-            is CameraIntent.TapFocus -> {
-                val t = renderer?.mapTap(intent.x, intent.y) ?: return
-                controller.focus(t.x, t.y, t.bufWidth, t.bufHeight)
-            }
+            is CameraIntent.TapFocus -> focus(intent.x, intent.y)
             is CameraIntent.Zoom -> {
                 val z = intent.linear.coerceIn(0f, 1f)
                 _state.update { it.copy(zoom = z) }
                 controller.setLinearZoom(z)
             }
+            is CameraIntent.PermissionResult -> {
+                _state.update { it.copy(permission = CameraRules.onPermissionResult(intent.granted, intent.canAskAgain)) }
+                rebindIfNeeded()
+            }
+            is CameraIntent.RefreshPermission -> {
+                _state.update { it.copy(permission = CameraRules.onRefreshPermission(it.permission, intent.granted)) }
+                rebindIfNeeded()
+            }
+            CameraIntent.RetryCamera -> {
+                if ((_state.value.camera as? CameraStatus.Error)?.kind == CameraErrorKind.GpuUnsupported) return
+                _state.update { it.copy(camera = CameraStatus.Opening) }
+                boundKey = null
+                rebindIfNeeded()
+            }
+            CameraIntent.LastShotUnavailable -> _state.update { it.copy(lastShot = null) }
         }
         refreshPreviewLook()
     }
 
     // ---- camera attachment (from CameraScreen) ----
 
-    fun attach(owner: LifecycleOwner, renderer: GlPreviewRenderer) {
+    fun attach(owner: LifecycleOwner) {
         this.owner = owner
-        this.renderer = renderer
-        renderer.onContextLost = { controller.resetSurfaceProvider() }
         boundKey = null
-        refreshPreviewLook()
         rebindIfNeeded()
     }
 
-    fun detach(renderer: GlPreviewRenderer) {
-        if (this.renderer !== renderer) return
-        renderer.onContextLost = null
-        this.renderer = null
+    fun detach(owner: LifecycleOwner) {
+        if (this.owner !== owner) return
         this.owner = null
+        renderer = null
         boundKey = null
         controller.unbind()
+        _state.update { it.copy(camera = CameraStatus.Opening) }
     }
 
-    fun setDisplayRotation(rotation: Int) {
-        if (rotation == displayRotation) return
+    /** K14: display rotation (Surface.ROTATION_*) and whether the natural orientation is portrait. */
+    fun setDisplay(rotation: Int, naturalPortrait: Boolean) {
+        val imagePortrait = (rotation == 0 || rotation == 2) == naturalPortrait
+        _state.update { it.copy(imagePortrait = imagePortrait) }
+        // 180° flips keep the ViewPort aspect: the controller's DisplayListener handles them.
+        val needsRebind = (rotation % 2) != (displayRotation % 2)
         displayRotation = rotation
-        rebindIfNeeded()
+        if (needsRebind) rebindIfNeeded()
     }
 
-    fun onPermission(p: PermissionState) {
-        _state.update { it.copy(permission = p) }
-        rebindIfNeeded()
+    /** K12 */
+    fun setScreenFlash(flash: ImageCapture.ScreenFlash?) = controller.setScreenFlash(flash)
+
+    /** K15: hardware shutter key released (shutter, or cancel during a countdown). */
+    fun onHardwareShutter() {
+        if (!acceptsHardwareShutter()) return
+        onIntent(CameraIntent.Shutter)
     }
 
-    /** Camera error → retry on resume (SPEC §8). */
-    fun onResume() {
-        if (_state.value.cameraError != null) {
-            _state.update { it.copy(cameraError = null) }
-            boundKey = null
-            rebindIfNeeded()
+    /** Keys keep their system role unless the camera is shown, granted and Ready. */
+    fun acceptsHardwareShutter(): Boolean =
+        _state.value.permission == PermissionState.Granted && owner != null && _state.value.camera == CameraStatus.Ready
+
+    private fun onCameraEvent(e: CameraEvent) {
+        when (e) {
+            CameraEvent.Opening -> _state.update { if (it.camera is CameraStatus.Error) it else it.copy(camera = CameraStatus.Opening) }
+            CameraEvent.Ready -> _state.update { it.copy(camera = CameraStatus.Ready) }
+            is CameraEvent.Failed -> _state.update {
+                val kind = when {
+                    e.disabled -> CameraErrorKind.Disabled
+                    e.inUse -> CameraErrorKind.InUse
+                    else -> CameraErrorKind.Fatal
+                }
+                it.copy(camera = CameraStatus.Error(kind))
+            }
+            is CameraEvent.ZoomChanged -> _state.update { it.copy(zoom = e.linear, zoomRatio = e.ratio, zoomRange = e.min..e.max) }
         }
     }
 
@@ -184,34 +248,52 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val o = owner ?: return
         val r = renderer ?: return
         if (s.permission != PermissionState.Granted || presets == null) return
-        val key = listOf(s.lens, s.ratio, displayRotation, r)
+        if ((s.camera as? CameraStatus.Error)?.kind == CameraErrorKind.GpuUnsupported) return
+        val key = listOf(s.lens, s.ratio, displayRotation % 2, r)
         if (key == boundKey) return
         boundKey = key
         viewModelScope.launch {
             try {
                 val caps = controller.bind(o, s.lens, s.ratio, s.flash, displayRotation, r)
                 controller.setLinearZoom(_state.value.zoom)
-                _state.update { it.copy(hasFlash = caps.hasFlash, hasFront = caps.hasFront && caps.hasBack, cameraError = null) }
+                _state.update {
+                    it.copy(
+                        lens = caps.lens,
+                        caps = CameraCaps(caps.hasBack, caps.hasFront, caps.hasFlash, caps.screenFlash),
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "bind failed", e)
                 boundKey = null
-                _state.update { it.copy(cameraError = e.message ?: e.javaClass.simpleName) }
+                _state.update { it.copy(camera = CameraStatus.Error(CameraErrorKind.Fatal)) }
+            }
+        }
+    }
+
+    private fun focus(nx: Float, ny: Float) {
+        val t = renderer?.mapNormalized(nx, ny) ?: return
+        val seq = ++focusSeq
+        _state.update { it.copy(focus = FocusUi(nx, ny, FocusPhase.Focusing, seq)) }
+        controller.focus(t.x, t.y, t.bufWidth, t.bufHeight) { ok ->
+            _state.update { s ->
+                if (s.focus?.seq == seq) s.copy(focus = s.focus.copy(phase = if (ok) FocusPhase.Locked else FocusPhase.Failed)) else s
             }
         }
     }
 
     // ---- shutter / capture ----
 
+    private fun canAccept() = !taking && outstanding < 2
+
     private fun shutter() {
         val s = _state.value
-        when (s.captureState) {
-            is CaptureState.Countdown -> { cancelCountdown(); return }
-            CaptureState.Processing -> return // single in-flight capture
-            else -> Unit
+        if (s.captureState is CaptureState.Countdown) {
+            cancelCountdown()
+            return
         }
-        if (captureJob?.isActive == true) return
+        if (!CameraRules.shutterEnabled(s) || !canAccept()) return
         if (s.timer == TimerMode.OFF) {
             capture()
             return
@@ -221,6 +303,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 _state.update { it.copy(captureState = CaptureState.Countdown(n)) }
                 delay(1000)
             }
+            _state.update { it.copy(captureState = CaptureState.Idle) }
             capture()
         }
     }
@@ -235,52 +318,84 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun capture() {
         val repo = presets ?: return
+        if (!canAccept()) return
         val s = _state.value
         val now = LocalDateTime.now()
-        // Freeze seed + grain time + stamp at shutter (after the timer).
-        val lookState = LookState(
-            seed = s.lookSeed,
-            frame = s.frame,
-            dateStampOn = s.dateStamp,
-            stampCodes = DateStamp.codes(now).toList(),
-            grainTime = renderer?.lastGrainTime ?: 0f,
+        // K17a: immutable snapshot at the shutter (after the timer); later UI changes can't touch it.
+        val settings = CaptureSettings(
+            preset = repo.get(s.lookId),
+            state = LookState(
+                seed = s.lookSeed,
+                frame = s.frame,
+                dateStampOn = s.dateStamp,
+                stampCodes = DateStamp.codes(now).toList(),
+                grainTime = renderer?.lastGrainTime ?: 0f,
+            ),
+            time = now,
+            software = app.getString(R.string.app_name),
         )
-        val settings = CaptureSettings(repo.get(s.lookId), lookState, now, app.getString(R.string.app_name))
-        _state.update { it.copy(captureState = CaptureState.Processing) }
-        captureJob = app.appScope.launch {
-            val result = try {
-                val input = withContext(Dispatchers.Main) { controller.takePicture() }
-                app.capturePipeline.process(input, settings)
+        taking = true
+        _state.update { it.copy(lookSeed = Random.nextLong()) }
+        publishCaptureState()
+        refreshPreviewLook()
+        viewModelScope.launch {
+            val input = try {
+                controller.takePicture()
             } catch (e: CancellationException) {
+                taking = false
                 throw e
             } catch (e: Exception) {
-                Result.failure(e)
+                Log.e(TAG, "takePicture failed", e)
+                taking = false
+                fail(CaptureErrorKind.DevelopFailed)
+                return@launch
             }
+            taking = false
+            outstanding++
+            publishCaptureState()
+            jobs.send(input to settings)
+        }
+    }
+
+    private suspend fun develop(input: CaptureInput, settings: CaptureSettings) {
+        val result = app.capturePipeline.process(input, settings)
+        withContext(Dispatchers.Main) {
+            outstanding--
             result.onSuccess { uri ->
-                _state.update { it.copy(captureState = CaptureState.Saved(uri), lastShot = uri, lookSeed = Random.nextLong()) }
+                _state.update { it.copy(lastShot = uri, captureState = CaptureState.Saved(uri)) }
             }.onFailure { e ->
                 Log.e(TAG, "capture failed", e)
-                _state.update { it.copy(captureState = CaptureState.Error(e.message ?: e.javaClass.simpleName)) }
+                fail((e as? CaptureException)?.kind ?: CaptureErrorKind.DevelopFailed)
             }
-            withContext(Dispatchers.Main) { refreshPreviewLook() }
-            // The job ends here so the next shot is accepted immediately; the status clears on its own.
-            val shown = _state.value.captureState
-            app.appScope.launch {
-                delay(STATUS_MS)
-                _state.update { if (it.captureState === shown) it.copy(captureState = CaptureState.Idle) else it }
+            publishCaptureState()
+        }
+    }
+
+    private fun fail(kind: CaptureErrorKind) {
+        _state.update { it.copy(captureState = CaptureState.Error(kind, ++errorSeq)) }
+        publishCaptureState()
+    }
+
+    /** Processing ⇔ the shutter cannot accept a shot; otherwise keep Saved/Error/Idle. */
+    private fun publishCaptureState() {
+        _state.update { s ->
+            val cs = when {
+                s.captureState is CaptureState.Countdown -> s.captureState
+                !canAccept() -> CaptureState.Processing
+                s.captureState == CaptureState.Processing -> CaptureState.Idle
+                else -> s.captureState
             }
+            s.copy(captureState = cs, developing = outstanding)
         }
     }
 
     private fun refreshPreviewLook() {
         val repo = presets ?: return
         val s = _state.value
-        val look = PreviewLook(
+        renderer?.look = PreviewLook(
             repo.get(s.lookId),
             LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList()),
         )
-        _previewLook.value = look
-        renderer?.look = look
     }
 
     private fun persist() {
@@ -299,12 +414,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         countdownJob?.cancel()
-        controller.unbind()
+        jobs.close() // queued jobs still finish in appScope
+        previewHost.onRendererReady = null
+        previewHost.onContextLost = null
+        controller.release()
     }
 
     private companion object {
         const val TAG = "CameraViewModel"
-        const val STATUS_MS = 1500L
         val KEY_LOOK = stringPreferencesKey("lookId")
         val KEY_RATIO = stringPreferencesKey("ratio")
         val KEY_FLASH = stringPreferencesKey("flash")

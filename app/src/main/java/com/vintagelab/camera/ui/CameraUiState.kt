@@ -1,8 +1,10 @@
 package com.vintagelab.camera.ui
 
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 import com.vintagelab.camera.camera.FlashMode
 import com.vintagelab.camera.camera.Lens
+import com.vintagelab.camera.capture.CaptureErrorKind
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
 
@@ -13,15 +15,50 @@ enum class PermissionState { Granted, Denied, PermanentlyDenied }
 sealed interface CaptureState {
     data object Idle : CaptureState
     data class Countdown(val n: Int) : CaptureState
+
+    /** The shutter cannot accept a shot (a picture is being taken, or the develop queue is full). */
     data object Processing : CaptureState
     data class Saved(val uri: Uri) : CaptureState
-    data class Error(val msg: String) : CaptureState
+
+    /** K4: typed, shown once per [seq]. */
+    data class Error(val kind: CaptureErrorKind, val seq: Long) : CaptureState
 }
 
-/** One entry of the look picker. */
-data class LookItem(val id: String, val displayNameRes: String)
+/** K3. */
+enum class CameraErrorKind { InUse, Disabled, Fatal, GpuUnsupported }
 
-/** SPEC §6.2. Frozen after Phase A (fields may be added, not renamed). */
+sealed interface CameraStatus {
+    data object Opening : CameraStatus
+    data object Ready : CameraStatus
+    data class Error(val kind: CameraErrorKind) : CameraStatus
+}
+
+/** K5: what the bound camera supports. */
+@Immutable
+data class CameraCaps(
+    val hasBack: Boolean = true,
+    val hasFront: Boolean = true,
+    /** Flash unit on the current lens. */
+    val hasFlashUnit: Boolean = false,
+    /** Front lens: screen flash available (app-drawn overlay, K12). */
+    val screenFlash: Boolean = false,
+)
+
+/** K6: one entry of the look picker, in presets.json order. */
+@Immutable
+data class LookUi(val id: String, val displayNameRes: String, val hasRandomFx: Boolean)
+
+enum class FocusPhase { Focusing, Locked, Failed }
+
+/** K2: last tap-to-focus, normalized image-area coordinates. */
+@Immutable
+data class FocusUi(val nx: Float, val ny: Float, val phase: FocusPhase, val seq: Long)
+
+/** K7. */
+enum class RenderMode { Normal, Passthrough }
+
+/** SPEC §6.2 (+ K1–K17, DESIGN §10.4). Frozen after Phase A: fields may be added, not renamed. */
+@Immutable
 data class CameraUiState(
     val lookId: String = "classic35",
     val lens: Lens = Lens.BACK,
@@ -30,16 +67,29 @@ data class CameraUiState(
     val timer: TimerMode = TimerMode.OFF,
     val frame: FrameId = FrameId.NONE,
     val dateStamp: Boolean = false,
+    /** CameraX linear zoom [0,1]. */
     val zoom: Float = 0f,
     val lookSeed: Long = 0L,
     val captureState: CaptureState = CaptureState.Idle,
     val permission: PermissionState = PermissionState.Denied,
     val lastShot: Uri? = null,
-    // Not in §6.2's list; needed by the UI:
-    val looks: List<LookItem> = emptyList(),
-    val hasFlash: Boolean = true,
-    val hasFront: Boolean = true,
-    val cameraError: String? = null,
+    /** K1 */
+    val zoomRatio: Float = 1f,
+    val zoomRange: ClosedFloatingPointRange<Float> = 1f..1f,
+    /** K2 */
+    val focus: FocusUi? = null,
+    /** K3 */
+    val camera: CameraStatus = CameraStatus.Opening,
+    /** K5 */
+    val caps: CameraCaps = CameraCaps(),
+    /** K6 */
+    val looks: List<LookUi> = emptyList(),
+    /** K7 */
+    val renderMode: RenderMode = RenderMode.Normal,
+    /** K14: upright camera image is taller than wide (from the display rotation used for the ViewPort). */
+    val imagePortrait: Boolean = true,
+    /** Shots taken but not yet saved (0..2); drives the thumbnail "developing" pulse. */
+    val developing: Int = 0,
 )
 
 sealed interface CameraIntent {
@@ -54,7 +104,51 @@ sealed interface CameraIntent {
     data object Shuffle : CameraIntent
     data object Shutter : CameraIntent
 
-    /** View pixels, origin top-left. */
+    /** K10: normalized [0,1]² in the image area (frame margin excluded), upright display orientation. */
     data class TapFocus(val x: Float, val y: Float) : CameraIntent
     data class Zoom(val linear: Float) : CameraIntent
+
+    /** K8 */
+    data class PermissionResult(val granted: Boolean, val canAskAgain: Boolean) : CameraIntent
+    data class RefreshPermission(val granted: Boolean) : CameraIntent
+
+    /** K3 */
+    data object RetryCamera : CameraIntent
+
+    /** K9 */
+    data object LastShotUnavailable : CameraIntent
+}
+
+/** Pure reducers shared by the ViewModel and tests. */
+object CameraRules {
+    /** DESIGN §5.1: back OFF › AUTO › ON › OFF; front (screen flash) skips AUTO, a stored AUTO reads as ON. */
+    fun nextFlash(current: FlashMode, lens: Lens): FlashMode = when (lens) {
+        Lens.BACK -> when (current) {
+            FlashMode.OFF -> FlashMode.AUTO
+            FlashMode.AUTO -> FlashMode.ON
+            FlashMode.ON -> FlashMode.OFF
+        }
+        Lens.FRONT -> if (current == FlashMode.OFF) FlashMode.ON else FlashMode.OFF
+    }
+
+    /** K8: launcher results set any state; refreshes only move to/from Granted. */
+    fun onPermissionResult(granted: Boolean, canAskAgain: Boolean): PermissionState = when {
+        granted -> PermissionState.Granted
+        canAskAgain -> PermissionState.Denied
+        else -> PermissionState.PermanentlyDenied
+    }
+
+    fun onRefreshPermission(current: PermissionState, granted: Boolean): PermissionState = when {
+        granted -> PermissionState.Granted
+        current == PermissionState.Granted -> PermissionState.Denied
+        else -> current
+    }
+
+    /** DESIGN §6.1 enablement matrix. */
+    fun lensRatioEnabled(s: CameraUiState): Boolean =
+        s.camera == CameraStatus.Ready && s.captureState !is CaptureState.Countdown && s.captureState != CaptureState.Processing
+
+    fun timerEnabled(s: CameraUiState): Boolean = s.captureState !is CaptureState.Countdown
+
+    fun shutterEnabled(s: CameraUiState): Boolean = s.camera == CameraStatus.Ready && s.captureState != CaptureState.Processing
 }
