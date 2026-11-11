@@ -6,7 +6,7 @@
 | Owner | Project owner (the user) — approves looks, names, scope |
 | Integrator / reviewer | Claude (main session) |
 | Related | `docs/reviews/spec-review-v0.1.md` (Goldfish review), `docs/DESIGN.md` (pending, Visual Storyteller), `third_party/t3mujinpack/NOTICE.md` |
-| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 |
+| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) |
 
 > **Read §5 (pipeline & parity) first** — it is the hard constraint.
 
@@ -184,6 +184,13 @@ frame, dateStamp with DataStore Preferences. Selecting a look resets frame/dateS
 - On preset change, `LookLutBaker` (GPU, both contexts) bakes **film LUT ∘ parametric colour ops**
   (exposure, tone curve, saturation, temperature/tint, shadow/highlight tint, fade, mono) into one
   33³ `sampler3D` (RGBA8, LINEAR, CLAMP_TO_EDGE). Combine pass samples it once → identical colour in both paths.
+- *Phase A notes.* (1) The converter is `app/src/test/java/com/vintagelab/camera/tools/HaldClutConverter.kt`
+  (pure JVM with a minimal PNG codec, because the Android unit-test classpath has no `javax.imageio`). Regenerate with
+  `./gradlew :app:testDebugUnitTest -PgenerateLuts --tests '*GenerateLuts*'`. Image layout lives in one place,
+  `looks/LutLayout.kt`: entry (r,g,b) → x = r + 33·g, y = b. (2) `LookLutBaker` bakes on the **CPU** (pure Kotlin,
+  ~36k entries) rather than the GPU, so both contexts upload byte-identical cubes and the bake is unit-testable.
+  Bake order: exposure (linear light) → film LUT mixed by `lutStrength` → temperature/tint → tone r/g/b then all →
+  saturation → shadow/highlight tint → fade → mono.
 
 ### 6.5 Capture
 - `ImageCapture` `OUTPUT_FORMAT_JPEG`, `takePicture(executor, OnImageCapturedCallback)` — no unfiltered file
@@ -239,6 +246,12 @@ identity preset `none`. presets.json holds numbers and ids only; leak/dust are p
 `vec2 uCenterGlow; float uSoftFocus; vec2 uBloom; float uSharpen; vec2 uDistortion;`
 `vec4 uLeak (enabled,variant,amount,angle); vec2 uLeakPos; float uDust; float uSeed;`
 `int uFrame; vec4 uStampColor; float uStampOn; vec4 uStampDigits[2]` (8 glyph codes).
+*Phase A notes.* `uLutStrength` is the mix of the whole baked look against the input and is 1 for every
+preset (the preset's `lutStrength` mixes only the film LUT, inside the bake). Extra uniforms beyond this list:
+Pass 0 `mat3 uSrcMatrix` (upright image uv → buffer uv, from `looks/CropMath.kt` `SourceTransform`) and
+`mat4 uStMatrix` (OES only); Pass 2 `vec2 uFootprint`; Pass 4 `vec2 uCanvasSize`, `vec4 uImageRect`,
+`float uFlipY`, `vec3 uFrameColor`, `vec4 uSprocket`, `vec2 uStampGeom` (values from `FrameGeometry`). `uStampDigits`
+slot codes: 0–9 digits, 10 blank, 11 apostrophe; slots = [', y, y, M, M, d, d, blank].
 Fixed order: geometry/distortion → colour (3D LUT) → soft focus/bloom/sharpen (pyramid) → centre glow →
 leak → vignette → dust → grain → overlay (frame, stamp). Phase A implements **every** uniform so Phase B
 only edits data and effect function bodies (`shaders/effects/<effect>.glsl`, concatenated at load).
@@ -276,6 +289,12 @@ Manifest: `android.hardware.camera.any` required; `camera.flash`, `camera.autofo
   coroutines (BOM-compatible), JUnit 4.13.2, Robolectric (latest stable 4.x).
   (AGP/Kotlin/BOM versions are present in the local Gradle cache; others resolved online once.)
 - Windows: `.\gradlew.bat`. `sdk.dir` in uncommitted `local.properties`. Git branch `main`.
+- *Phase A resolution.* Every pinned version above resolved and compiled unchanged. Resolved for the unpinned
+  entries: exifinterface 1.4.1, coroutines 1.10.2. Additions, pending integrator approval: androidx core-ktx 1.17.0,
+  lifecycle-runtime-compose / lifecycle-viewmodel-compose 2.9.4, and for androidTest only androidx.test.ext:junit 1.3.0
+  and androidx.test:runner 1.7.0. Robolectric is **not** used, because every §9.1 unit test is plain JVM.
+  `app/lint.xml` ignores only version-upgrade checks (GradleDependency, NewerVersionAvailable,
+  AndroidGradlePluginVersion, OldTargetApi), since this section pins those versions.
 
 ### 9.1 Tests
 - `PresetParserTest`: valid file; missing field → default; out-of-range → clamp; duplicate id skipped; malformed → identity.
@@ -289,7 +308,7 @@ Manifest: `android.hardware.camera.any` required; `camera.flash`, `camera.autofo
 ## 10. Alternatives considered
 | decision | chosen | rejected | trade-off |
 |---|---|---|---|
-| One GL effect on both paths | own pipeline | CameraX `CameraEffect`/`SurfaceProcessor` | built-in parity, but capture resolution/quality and seed control unclear → **1-day spike in Phase A**; adopt only if it meets §6.5 |
+| One GL effect on both paths | own pipeline | CameraX `CameraEffect`/`SurfaceProcessor` | built-in parity, but capture resolution/quality and seed control unclear → spike **deferred to Phase B** (see note below); adopt only if it meets §6.5 |
 | Shader structure | fixed pass graph + data | one shader per look | fewer programs, one contract; slightly harder to read |
 | Colour | baked 33³ LUT | per-pixel maths | identical colour both paths, cheap; bake on preset change |
 | Viewfinder | GLSurfaceView | TextureView/SurfaceView + own EGL | less code; must forward lifecycle |
@@ -298,6 +317,12 @@ Manifest: `android.hardware.camera.any` required; `camera.flash`, `camera.autofo
 | Crop | shared ViewPort | fixed 4:3 + shader crop | CameraX guarantees same crop; rebind on ratio change |
 | Capture context | separate | shared with preview | survives preview context loss; compiles twice |
 | Presets | JSON | Kotlin table | owner can retune without code; needs parser + tests |
+
+*CameraEffect spike: deferred to Phase B (Phase A ran out of time).* Phase A built the planned own pipeline. The spike
+must answer three questions before it can be adopted: (1) does the `IMAGE_CAPTURE` target give full-resolution
+output at q92; (2) can the frozen look seed and `uGrainTime` reach the processor per capture; (3) can
+`OffscreenRenderer` and `RenderGraph` be reused as the processor body unchanged? If any answer is no, the own
+pipeline stays.
 
 ## 11. Decisions log
 | ID | decision | status | date |
