@@ -1,0 +1,436 @@
+package com.vintagelab.camera.ui
+
+import android.graphics.Bitmap
+import android.util.Size
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as GSize
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.vintagelab.camera.R
+import com.vintagelab.camera.camera.FlashMode
+import com.vintagelab.camera.camera.Lens
+import com.vintagelab.camera.looks.AspectRatio
+import com.vintagelab.camera.looks.FrameId
+import com.vintagelab.camera.ui.icons.VlIcons
+import com.vintagelab.camera.ui.theme.LocalReducedMotion
+import com.vintagelab.camera.ui.theme.VlColors
+import com.vintagelab.camera.ui.theme.VlMotion
+import com.vintagelab.camera.ui.theme.VlRadius
+import com.vintagelab.camera.ui.theme.VlType
+import com.vintagelab.camera.ui.theme.labelValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+/** 48 dp control with glyph or value text and an optional 6 dp lamp (DESIGN §5.1). */
+@Composable
+fun ControlButton(
+    cd: String,
+    state: String?,
+    lampOn: Boolean?,
+    enabled: Boolean = true,
+    role: Role = Role.Button,
+    icon: ImageVector? = null,
+    text: String? = null,
+    iconTint: Color = VlColors.Ink,
+    onClick: () -> Unit,
+) {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    Box(
+        Modifier
+            .size(48.dp)
+            .clickable(source, indication = null, enabled = enabled, role = role, onClick = onClick)
+            .semantics {
+                contentDescription = cd
+                state?.let { stateDescription = it }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (pressed) Box(Modifier.size(40.dp).clip(RoundedCornerShape(VlRadius.Chip)).background(VlColors.Pressed))
+        val tint = if (enabled) iconTint else VlColors.InkDisabled
+        if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        if (text != null) Text(text, style = VlType.labelValue(), color = tint)
+        if (lampOn != null && enabled) Lamp(lampOn, Modifier.offset(y = 19.dp))
+    }
+}
+
+@Composable
+fun Lamp(on: Boolean, modifier: Modifier = Modifier, color: Color = VlColors.Amber) {
+    val shape = CircleShape
+    Box(
+        modifier
+            .size(6.dp)
+            .clip(shape)
+            .then(if (on) Modifier.background(color) else Modifier.border(1.dp, VlColors.Hairline, shape)),
+    )
+}
+
+@Composable
+fun FlashButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    val front = s.lens == Lens.FRONT
+    val visible = if (front) s.caps.screenFlash else s.caps.hasFlashUnit
+    if (!visible) {
+        Spacer(Modifier.size(48.dp))
+        return
+    }
+    val effective = if (front && s.flash == FlashMode.AUTO) FlashMode.ON else s.flash
+    val icon = when {
+        effective == FlashMode.OFF -> VlIcons.FlashOff
+        front -> VlIcons.ScreenFlash
+        effective == FlashMode.AUTO -> VlIcons.FlashAuto
+        else -> VlIcons.FlashOn
+    }
+    val st = stringResource(
+        when {
+            effective == FlashMode.OFF -> R.string.state_flash_off
+            front -> R.string.state_flash_screen
+            effective == FlashMode.AUTO -> R.string.state_flash_auto
+            else -> R.string.state_flash_on
+        },
+    )
+    ControlButton(stringResource(R.string.cd_flash), st, effective != FlashMode.OFF, icon = icon) { onIntent(CameraIntent.CycleFlash) }
+}
+
+@Composable
+fun TimerButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    val st = stringResource(when (s.timer) { TimerMode.OFF -> R.string.state_timer_off; TimerMode.S3 -> R.string.state_timer_3; TimerMode.S10 -> R.string.state_timer_10 })
+    val label = when (s.timer) { TimerMode.OFF -> null; TimerMode.S3 -> stringResource(R.string.label_timer_3); TimerMode.S10 -> stringResource(R.string.label_timer_10) }
+    ControlButton(
+        stringResource(R.string.cd_timer), st, s.timer != TimerMode.OFF, enabled = CameraRules.timerEnabled(s),
+        icon = if (label == null) VlIcons.Timer else null, text = label,
+    ) { onIntent(CameraIntent.SetTimer(TimerMode.entries[(s.timer.ordinal + 1) % TimerMode.entries.size])) }
+}
+
+@Composable
+fun RatioButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    val (label, st) = when (s.ratio) {
+        AspectRatio.R4_3 -> R.string.label_ratio_4_3 to R.string.state_ratio_4_3
+        AspectRatio.R1_1 -> R.string.label_ratio_1_1 to R.string.state_ratio_1_1
+        AspectRatio.R16_9 -> R.string.label_ratio_16_9 to R.string.state_ratio_16_9
+    }
+    ControlButton(
+        stringResource(R.string.cd_ratio), stringResource(st), null, enabled = CameraRules.lensRatioEnabled(s), text = stringResource(label),
+    ) { onIntent(CameraIntent.SetRatio(AspectRatio.entries[(s.ratio.ordinal + 1) % AspectRatio.entries.size])) }
+}
+
+@Composable
+fun FrameButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    val (icon, st) = when (s.frame) {
+        FrameId.NONE -> VlIcons.FrameNone to R.string.state_frame_none
+        FrameId.INSTANT_WHITE -> VlIcons.FrameInstant to R.string.state_frame_instant
+        FrameId.FILM_STRIP -> VlIcons.FrameStrip to R.string.state_frame_strip
+    }
+    ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, icon = icon) {
+        onIntent(CameraIntent.SetFrame(FrameId.entries[(s.frame.ordinal + 1) % FrameId.entries.size]))
+    }
+}
+
+@Composable
+fun DateStampButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    ControlButton(
+        stringResource(R.string.cd_date_stamp), null, s.dateStamp, role = Role.Switch, icon = VlIcons.DateStamp,
+        iconTint = if (s.dateStamp) VlColors.Amber else VlColors.Ink,
+    ) { onIntent(CameraIntent.ToggleDateStamp) }
+}
+
+@Composable
+fun MoreMenu(onOpenLicenses: () -> Unit, lampOn: Boolean? = null) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ControlButton(stringResource(R.string.cd_more), null, lampOn, icon = VlIcons.More) { expanded = true }
+        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.menu_licenses)) }, onClick = { expanded = false; onOpenLicenses() })
+        }
+    }
+}
+
+/** T2 controls: top bar (portrait) or start rail (landscape). */
+@Composable
+fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses: () -> Unit, vertical: Boolean, modifier: Modifier = Modifier) {
+    val items: @Composable () -> Unit = {
+        FlashButton(s, onIntent)
+        TimerButton(s, onIntent)
+        RatioButton(s, onIntent)
+        FrameButton(s, onIntent)
+        DateStampButton(s, onIntent)
+    }
+    if (vertical) {
+        Column(modifier.background(VlColors.Deck).padding(vertical = 8.dp), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
+            items()
+            Spacer(Modifier.weight(1f))
+            MoreMenu(onOpenLicenses)
+        }
+    } else {
+        Row(modifier.background(VlColors.Deck).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            items()
+            Spacer(Modifier.weight(1f))
+            MoreMenu(onOpenLicenses)
+        }
+    }
+}
+
+/** Shutter (DESIGN §5.1): idle disc, cancel square in countdown, safelight sweep while developing. */
+@Composable
+fun ShutterButton(s: CameraUiState, size: Dp, onIntent: (CameraIntent) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val reduced = LocalReducedMotion.current
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    LaunchedEffect(pressed) { if (pressed) haptics.performHapticFeedback(HapticFeedbackType.VirtualKey) }
+    val busy = s.captureState == CaptureState.Processing
+    val countdown = s.captureState is CaptureState.Countdown
+    val available = s.camera == CameraStatus.Ready
+    val disc by animateFloatAsState(if (pressed) 0.87f else 1f, VlMotion.instant(reduced), label = "disc")
+    val sweep = rememberInfiniteTransition(label = "develop")
+    val angle by sweep.animateFloat(0f, 360f, infiniteRepeatable(tween(VlMotion.DevelopLoop, easing = LinearEasing)), label = "angle")
+    val cd = stringResource(
+        when {
+            countdown -> R.string.cd_shutter_cancel
+            busy -> R.string.cd_shutter_busy
+            else -> R.string.cd_shutter
+        },
+    )
+    Canvas(
+        Modifier
+            .size(size)
+            .clickable(source, indication = null, enabled = available && !busy, role = Role.Button) { onIntent(CameraIntent.Shutter) }
+            .semantics {
+                contentDescription = cd
+                if (busy || !available) disabled()
+            },
+    ) {
+        val k = this.size.minDimension / 80.dp.toPx()
+        val ringR = 38.dp.toPx() * k
+        val c = Offset(this.size.width / 2, this.size.height / 2)
+        val ringColor = when {
+            !available -> VlColors.InkDisabled
+            busy -> VlColors.Hairline
+            else -> VlColors.Ink
+        }
+        if (busy) drawCircle(VlColors.Safelight.copy(alpha = 0.35f), ringR + 4.dp.toPx() * k, c, style = Stroke(8.dp.toPx() * k))
+        drawCircle(ringColor, ringR, c, style = Stroke(3.dp.toPx() * k))
+        if (busy) {
+            val start = if (reduced) 0f else angle
+            drawArc(
+                VlColors.Safelight, start, if (reduced) 360f else 90f, false,
+                topLeft = Offset(c.x - ringR, c.y - ringR), size = GSize(ringR * 2, ringR * 2), style = Stroke(3.dp.toPx() * k),
+            )
+        }
+        if (countdown) {
+            val h = 12.dp.toPx() * k
+            drawRoundRect(VlColors.Ink, Offset(c.x - h, c.y - h), GSize(h * 2, h * 2), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx() * k))
+        } else {
+            val discColor = when {
+                !available -> VlColors.Raised
+                busy -> VlColors.Pressed
+                pressed -> VlColors.ShutterCorePressed
+                else -> VlColors.ShutterCore
+            }
+            drawCircle(discColor, 31.dp.toPx() * k * disc, c)
+        }
+    }
+}
+
+@Composable
+fun LastShotThumbnail(s: CameraUiState, onOpen: () -> Unit, onUnavailable: () -> Unit) {
+    val context = LocalContext.current
+    var thumb by remember { mutableStateOf<Bitmap?>(null) }
+    val uri = s.lastShot
+    LaunchedEffect(uri) {
+        thumb = uri?.let {
+            withContext(Dispatchers.IO) { runCatching { context.contentResolver.loadThumbnail(it, Size(112, 112), null) }.getOrNull() }
+        }
+        if (uri != null && thumb == null) onUnavailable()
+    }
+    val drop by animateFloatAsState(if (thumb != null) 1f else 1.15f, VlMotion.emphasized(LocalReducedMotion.current), label = "drop")
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val pa by pulse.animateFloat(0.06f, 0.14f, infiniteRepeatable(tween(VlMotion.DevelopLoop), RepeatMode.Reverse), label = "pa")
+    val shape = RoundedCornerShape(VlRadius.Card)
+    val cd = stringResource(if (uri != null) R.string.cd_thumb else R.string.cd_thumb_empty)
+    Box(
+        Modifier
+            .size(56.dp)
+            .clip(shape)
+            .background(VlColors.Raised)
+            .border(if (thumb != null) 2.dp else 1.5.dp, if (thumb != null) VlColors.Paper else VlColors.Hairline, shape)
+            .clickable(enabled = uri != null, role = Role.Button, onClick = onOpen)
+            .semantics { contentDescription = cd },
+        contentAlignment = Alignment.Center,
+    ) {
+        val t = thumb
+        if (t != null) {
+            Image(t.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().padding(2.dp).scale(drop))
+        } else {
+            Icon(VlIcons.FrameInstant, null, tint = VlColors.InkDisabled, modifier = Modifier.size(20.dp))
+        }
+        if (s.developing > 0) Box(Modifier.fillMaxSize().background(VlColors.Safelight.copy(alpha = pa)))
+    }
+}
+
+@Composable
+fun LensSwitchButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit, size: Dp = 56.dp) {
+    if (!(s.caps.hasFront && s.caps.hasBack)) {
+        Spacer(Modifier.size(size))
+        return
+    }
+    val rot by animateFloatAsState(if (s.lens == Lens.FRONT) 180f else 0f, VlMotion.emphasized(LocalReducedMotion.current), label = "lens")
+    val enabled = CameraRules.lensRatioEnabled(s)
+    val st = stringResource(if (s.lens == Lens.BACK) R.string.state_lens_back else R.string.state_lens_front)
+    val cd = stringResource(R.string.cd_lens_switch)
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(VlColors.Raised)
+            .clickable(enabled = enabled, role = Role.Button) { onIntent(CameraIntent.ToggleLens) }
+            .semantics { contentDescription = cd; stateDescription = st },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            VlIcons.LensSwitch, null, tint = if (enabled) VlColors.Ink else VlColors.InkDisabled,
+            modifier = Modifier.size(24.dp).rotate(rot),
+        )
+    }
+}
+
+/** T1 deck: thumbnail | shutter (+ developing label) | lens. */
+@Composable
+fun Deck(s: CameraUiState, onIntent: (CameraIntent) -> Unit, shutter: Dp, vertical: Boolean, onOpenLastShot: () -> Unit, modifier: Modifier = Modifier) {
+    val thumb: @Composable () -> Unit = { LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) } }
+    val shutterCol: @Composable () -> Unit = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            ShutterButton(s, shutter, onIntent)
+            DevelopingLabelSimple(s)
+        }
+    }
+    if (vertical) {
+        Column(modifier.background(VlColors.Deck), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
+            LensSwitchButton(s, onIntent); shutterCol(); thumb()
+        }
+    } else {
+        Row(modifier.background(VlColors.Deck), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            thumb(); shutterCol(); LensSwitchButton(s, onIntent)
+        }
+    }
+}
+
+/** "Developing…" only when Processing lasts > 600 ms (DESIGN §6.2). */
+@Composable
+fun DevelopingLabelSimple(s: CameraUiState) {
+    var show by remember { mutableStateOf(false) }
+    val busy = s.captureState == CaptureState.Processing
+    LaunchedEffect(busy) {
+        show = false
+        if (busy) {
+            delay(600)
+            show = true
+        }
+    }
+    val alpha by animateFloatAsState(if (show && busy) 1f else 0f, VlMotion.quick(), label = "dev")
+    Text(
+        stringResource(R.string.shutter_developing).uppercase(), style = VlType.labelEngraved,
+        color = VlColors.InkMuted.copy(alpha = alpha), maxLines = 1, modifier = Modifier.padding(top = 4.dp).height(14.dp),
+    )
+}
+
+/** Mini mode: look chip, shutter, lens, ⋯ → Controls sheet (DESIGN §4.6). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolean, onOpenLicenses: () -> Unit, onOpenLastShot: () -> Unit, modifier: Modifier = Modifier) {
+    var sheet by remember { mutableStateOf(false) }
+    val current = s.looks.firstOrNull { it.id == s.lookId }
+    val chipCd = stringResource(R.string.cd_look_chip, lookName(current))
+    val chip: @Composable () -> Unit = {
+        Box(Modifier.size(48.dp).clickable(role = Role.Button) { sheet = true }.semantics { contentDescription = chipCd }, contentAlignment = Alignment.Center) {
+            LookSwatch(s.lookId, Modifier.size(32.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
+        }
+    }
+    val more: @Composable () -> Unit = {
+        ControlButton(stringResource(R.string.cd_more), null, s.flash != FlashMode.OFF || s.timer != TimerMode.OFF, icon = VlIcons.More) { sheet = true }
+    }
+    if (vertical) {
+        Column(modifier.background(VlColors.Deck), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
+            chip(); ShutterButton(s, 64.dp, onIntent); LensSwitchButton(s, onIntent, 48.dp); more()
+        }
+    } else {
+        Row(modifier.background(VlColors.Deck), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            chip(); ShutterButton(s, 64.dp, onIntent); LensSwitchButton(s, onIntent, 48.dp); more()
+        }
+    }
+    if (sheet) {
+        val title = stringResource(R.string.cd_controls_sheet)
+        ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = VlColors.Raised, modifier = Modifier.semantics { paneTitle = title }) {
+            var pendingClose by remember { mutableStateOf(false) }
+            LaunchedEffect(pendingClose) { if (pendingClose) { delay(300); sheet = false } }
+            LookPicker(s.looks, s.lookId, vertical = false, compact = false, onSelect = { onIntent(CameraIntent.SelectLook(it)); pendingClose = true }, modifier = Modifier.fillMaxWidth().height(96.dp))
+            Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                FlashButton(s, onIntent); TimerButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
+            }
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) }
+                TextButton(onClick = { sheet = false; onOpenLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }
+            }
+        }
+    }
+}

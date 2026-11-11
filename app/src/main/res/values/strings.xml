@@ -2,53 +2,98 @@
 <resources>
     <!-- Temporary display label (SPEC §2.4): must be replaced before the first Play upload. -->
     <string name="app_name">Dazz Cam</string>
-
-    <!-- Look display names: our own names (looked up by presets.json displayNameRes). -->
-    <string name="look_classic35">Classic 35</string>
-    <string name="look_disposable">Throwaway</string>
+    <string name="look_classic35">Golden</string>
+    <string name="look_disposable">Pocket</string>
     <string name="look_instant">Instant</string>
-    <string name="look_ccd">Digi CCD</string>
-    <string name="look_bw400">Mono 400</string>
-    <string name="look_fisheye">Fisheye</string>
-
-    <!-- Controls -->
-    <string name="flash_off">Flash off</string>
-    <string name="flash_on">Flash on</string>
-    <string name="flash_auto">Flash auto</string>
-    <string name="ratio_4_3" translatable="false">4:3</string>
-    <string name="ratio_1_1" translatable="false">1:1</string>
-    <string name="ratio_16_9" translatable="false">16:9</string>
-    <string name="timer_off">Timer off</string>
-    <string name="timer_3">Timer 3s</string>
-    <string name="timer_10">Timer 10s</string>
-    <string name="frame_none">No frame</string>
-    <string name="frame_instant">Instant frame</string>
-    <string name="frame_strip">Film strip</string>
-    <string name="date_on">Date on</string>
-    <string name="date_off">Date off</string>
-    <string name="shuffle">Shuffle</string>
-    <string name="switch_lens">Switch camera</string>
-    <string name="shutter">Take photo</string>
-    <string name="shutter_cancel">Cancel timer</string>
-    <string name="developing">developing…</string>
-    <string name="saved">Saved</string>
-    <string name="last_shot">Open last photo</string>
-    <string name="licenses">Licenses</string>
-    <string name="no_viewer">No app can open this photo</string>
-
-    <!-- Errors -->
-    <string name="error_capture">Could not save the photo: %1$s</string>
-    <string name="error_camera">Camera unavailable: %1$s</string>
-
-    <!-- Permission -->
-    <string name="permission_title">Camera access needed</string>
-    <string name="permission_rationale">This app shows its film looks live in the viewfinder, so it needs the camera. Photos are saved only to your gallery; nothing leaves your phone.</string>
-    <string name="permission_grant">Allow camera</string>
-    <string name="permission_denied_forever">Camera access is turned off for this app. You can turn it on in Settings.</string>
-    <string name="permission_open_settings">Open Settings</string>
-
-    <!-- Licenses -->
+    <string name="look_ccd">Digi</string>
+    <string name="look_bw400">Mono</string>
+    <string name="look_fisheye">Bubble</string>
+    <string name="cd_look_suffix">%1$s look</string>
+    <string name="cd_viewfinder">Viewfinder, %1$s look</string>
+    <string name="cd_look_chip">Look: %1$s. Show looks and controls</string>
+    <string name="cd_controls_sheet">Camera controls</string>
+    <string name="cd_flash">Flash</string>
+    <string name="state_flash_off">Off</string>
+    <string name="state_flash_auto">Auto</string>
+    <string name="state_flash_on">On</string>
+    <string name="state_flash_screen">Screen flash</string>
+    <string name="cd_timer">Self-timer</string>
+    <string name="state_timer_off">Off</string>
+    <string name="state_timer_3">3 seconds</string>
+    <string name="state_timer_10">10 seconds</string>
+    <string name="label_timer_3">3s</string>
+    <string name="label_timer_10">10s</string>
+    <string name="cd_ratio">Aspect ratio</string>
+    <string name="state_ratio_4_3">4 by 3</string>
+    <string name="state_ratio_1_1">Square</string>
+    <string name="state_ratio_16_9">16 by 9</string>
+    <string name="label_ratio_4_3" translatable="false">4:3</string>
+    <string name="label_ratio_1_1" translatable="false">1:1</string>
+    <string name="label_ratio_16_9" translatable="false">16:9</string>
+    <string name="cd_frame">Frame</string>
+    <string name="state_frame_none">None</string>
+    <string name="state_frame_instant">Instant border</string>
+    <string name="state_frame_strip">Film strip</string>
+    <string name="cd_date_stamp">Date stamp</string>
+    <string name="cd_more">More options</string>
+    <string name="menu_licenses">Open-source licenses</string>
+    <string name="cd_shuffle">Shuffle light leak and dust</string>
+    <string name="a11y_shuffled">Shuffled</string>
+    <string name="cd_shutter">Take photo</string>
+    <string name="cd_shutter_cancel">Cancel timer</string>
+    <string name="cd_shutter_busy">Developing photo</string>
+    <string name="shutter_developing">Developing…</string>
+    <string name="cd_lens_switch">Switch camera</string>
+    <string name="state_lens_back">Back camera</string>
+    <string name="state_lens_front">Front camera</string>
+    <string name="cd_thumb">Open last photo</string>
+    <string name="cd_thumb_empty">No photos yet</string>
+    <string name="cd_zoom">Zoom %1$s times</string>
+    <string name="label_zoom">%1$s×</string>
+    <string name="a11y_action_focus_center">Focus center</string>
+    <string name="a11y_action_zoom_in">Zoom in</string>
+    <string name="a11y_action_zoom_out">Zoom out</string>
+    <string name="a11y_action_zoom_reset">Reset zoom</string>
+    <string name="a11y_action_next_look">Next look</string>
+    <string name="a11y_action_prev_look">Previous look</string>
+    <string name="a11y_action_shuffle">Shuffle light leak and dust</string>
+    <string name="a11y_look_selected">%1$s look</string>
+    <string name="a11y_photo_saved">Photo saved</string>
+    <string name="a11y_timer_started">Timer, %1$d seconds</string>
+    <string name="a11y_timer_cancelled">Timer cancelled</string>
+    <string name="a11y_focus_locked">Focused</string>
+    <string name="status_opening">Opening camera…</string>
+    <string name="perm_title">Let the light in</string>
+    <string name="perm_body">Camera access is needed to frame and take photos. Photos stay on your phone.</string>
+    <string name="perm_allow">Allow camera</string>
+    <string name="perm_denied_title">Camera access is off</string>
+    <string name="perm_denied_body">Turn on Camera for this app in Settings to start shooting.</string>
+    <string name="perm_open_settings">Open settings</string>
+    <string name="err_camera_in_use_title">Camera in use</string>
+    <string name="err_camera_in_use_body">Another app is using the camera. It reconnects when it\'s free.</string>
+    <string name="err_camera_disabled_title">Camera disabled</string>
+    <string name="err_camera_disabled_body">Your device policy blocks the camera.</string>
+    <string name="err_camera_generic_title">Camera stopped</string>
+    <string name="err_camera_generic_body">Something went wrong. Try again.</string>
+    <string name="err_gpu_title">Camera preview unsupported</string>
+    <string name="err_gpu_body">This device\'s graphics driver can\'t show the live preview.</string>
+    <string name="action_retry">Try again</string>
+    <string name="err_save_failed">Couldn\'t save photo.</string>
+    <string name="err_storage_full">Storage full. Photo not saved.</string>
+    <string name="err_develop_failed">Couldn\'t develop photo. Try again.</string>
+    <string name="err_no_viewer">No app can open photos.</string>
+    <string name="err_photo_missing">Photo no longer available.</string>
+    <string name="err_looks_unavailable">Looks unavailable on this device.</string>
     <string name="licenses_title">Open-source licenses</string>
-    <string name="licenses_t3mujinpack">t3mujinpack film emulation LUTs (MIT)</string>
-    <string name="back">Back</string>
+    <string name="licenses_version">Version %1$s</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_expand">Show license text</string>
+    <string name="cd_collapse">Hide license text</string>
+    <string name="lic_t3mujinpack">t3mujinpack film emulations</string>
+    <string name="lic_mit">MIT License</string>
+    <string name="lic_plex">IBM Plex Mono</string>
+    <string name="lic_ofl">SIL Open Font License 1.1</string>
+    <string name="lic_androidx">AndroidX / Jetpack libraries</string>
+    <string name="lic_apache">Apache License 2.0</string>
+    <string name="lic_androidx_notice">This app uses Android Jetpack libraries (Compose, CameraX, Lifecycle, DataStore, ExifInterface) and Kotlin libraries, licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0</string>
 </resources>
