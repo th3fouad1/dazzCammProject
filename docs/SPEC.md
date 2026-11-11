@@ -552,7 +552,7 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
 | Preview Digi (ccd: bloom+sharpen) | ≥ 30 fps | 31.3 fps, 0 frames >50 ms, max 48.2 ms; CPU p95 ≤ 12.4, GPU-sync p50 10.2 / p95 ≤ 13.0 ms | pass |
 | Preview Bubble (fisheye) | ≥ 30 fps | 31.4 fps, 0 frames >50 ms, max 48.4 ms; CPU p95 ≤ 14.6, GPU-sync p50 12.4 / p95 ≤ 15.7 ms | pass |
 | Preview Pocket re-measured after ~14 min of camera use | ≥ 30 fps | 31.3 fps, 0 frames >50 ms, GPU-sync p50 12.9 / p95 ≤ 15.1 ms | pass |
-| Preview during capture render (Pocket, 10 shots) | ≥ 15 fps | worst frame 241.7 ms in the window containing a shot (one stall); 21 of ~3300 frames >50 ms, all within shot windows | pass |
+| Preview during capture render (Pocket, 10 shots) | ≥ 15 fps | worst frame 241.7 ms in the window containing a shot (one stall); 21 of ~3300 frames >50 ms, in 10 of 56 windows (shot windows plus one at look switch) | pass |
 | Shutter-to-saved median of 10, Golden (classic35) | ≤ 2.5 s | 1.14 s (max 1.27 s) | pass |
 | Shutter-to-saved median of 10, Pocket (disposable) | ≤ 2.5 s | 1.11 s (max 1.24 s) | pass |
 | Stage: capture→ImageProxy (Golden / Pocket) | ≤ 600 ms | 625 / 605 ms | marginal fail (+4 % / +1 %) |
