@@ -25,6 +25,7 @@ object ShaderSources {
                 "effects/vignette.glsl",
                 "effects/dust.glsl",
                 "effects/grain.glsl",
+                "effects/video.glsl",
                 "combine.glsl",
             ),
         ),

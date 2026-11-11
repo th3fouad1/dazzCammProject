@@ -14,6 +14,10 @@ import com.vintagelab.camera.capture.MultiShotRules
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.PrismMode
+import com.vintagelab.camera.video.RecordingPhase
+import com.vintagelab.camera.video.RecordingState
+
+enum class CameraMode { Photo, Video }
 
 enum class TimerMode(val seconds: Int) { OFF(0), S3(3), S10(10) }
 
@@ -67,6 +71,7 @@ enum class RenderMode { Normal, Passthrough }
 /** SPEC §6.2 (+ K1–K17, DESIGN §10.4). Frozen after Phase A: fields may be added, not renamed. */
 @Immutable
 data class CameraUiState(
+    val mode: CameraMode = CameraMode.Photo,
     val lookId: String = "classic35",
     val lens: Lens = Lens.BACK,
     val flash: FlashMode = FlashMode.OFF,
@@ -110,12 +115,22 @@ data class CameraUiState(
     val prism: PrismMode = PrismMode.OFF,
     /** SPEC 6.9: keep a re-developable negative with every saved photo (persisted, default on). */
     val keepNegatives: Boolean = true,
+    /** Video recording lifecycle; elapsed time is capped at three minutes. */
+    val recording: RecordingState = RecordingState(),
+    /** Incremented when AppRoot must launch the RECORD_AUDIO runtime dialog. */
+    val audioPermissionRequestSeq: Long = 0L,
+    /** One-shot notices consumed by CameraScreen. */
+    val audioDeniedNoticeSeq: Long = 0L,
+    val videoFallbackNoticeSeq: Long = 0L,
+    val videoErrorSeq: Long = 0L,
+    val videoStorageFull: Boolean = false,
 )
 
 /** The multi-shot slice of the UI state as a pure value. */
 val CameraUiState.multi: MultiShotState get() = MultiShotState(multiMode, multiExposure, gridShots)
 
 sealed interface CameraIntent {
+    data class SetMode(val mode: CameraMode) : CameraIntent
     data class SelectLook(val id: String) : CameraIntent
     data object ToggleLens : CameraIntent
     data object CycleFlash : CameraIntent
@@ -149,6 +164,8 @@ sealed interface CameraIntent {
 
     /** K9 */
     data object LastShotUnavailable : CameraIntent
+
+    data class RecordAudioPermissionResult(val granted: Boolean) : CameraIntent
 }
 
 /** Pure reducers shared by the ViewModel and tests. */
@@ -178,7 +195,8 @@ object CameraRules {
 
     /** DESIGN §6.1 enablement matrix. */
     fun lensRatioEnabled(s: CameraUiState): Boolean =
-        s.camera == CameraStatus.Ready && s.captureState !is CaptureState.Countdown && s.captureState != CaptureState.Processing
+        s.camera == CameraStatus.Ready && s.captureState !is CaptureState.Countdown && s.captureState != CaptureState.Processing &&
+            s.recording.phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)
 
     /** Ratio is locked in half-frame (forced 4:3) and between the shots of a pair. */
     fun ratioEnabled(s: CameraUiState): Boolean = lensRatioEnabled(s) && !MultiShotRules.ratioLocked(s.multi)
@@ -200,5 +218,7 @@ object CameraRules {
 
     fun timerEnabled(s: CameraUiState): Boolean = s.captureState !is CaptureState.Countdown
 
-    fun shutterEnabled(s: CameraUiState): Boolean = s.camera == CameraStatus.Ready && s.captureState != CaptureState.Processing
+    fun shutterEnabled(s: CameraUiState): Boolean = s.camera == CameraStatus.Ready &&
+        if (s.mode == CameraMode.Video) s.recording.phase != RecordingPhase.Stopping
+        else s.captureState != CaptureState.Processing
 }

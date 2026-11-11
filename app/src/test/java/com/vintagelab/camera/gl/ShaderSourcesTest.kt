@@ -16,6 +16,8 @@ class ShaderSourcesTest {
         "uCenterGlow" to "vec2", "uSoftFocus" to "float", "uBloom" to "vec2", "uSharpen" to "float",
         "uDistortion" to "vec2", "uPrism" to "vec2", "uLeak" to "vec4", "uLeakPos" to "vec2", "uDust" to "float", "uSeed" to "float",
         "uFrame" to "int", "uStampColor" to "vec4", "uStampOn" to "float", "uStampDigits" to "vec4",
+        "uTime" to "float", "uFrameIndex" to "float", "uVideoStyle" to "float",
+        "uVideoFxA" to "vec4", "uVideoFxB" to "vec4", "uVideoScratches" to "float", "uVideoStamp" to "vec4",
     )
 
     private fun allFragments(): Map<String, String> {

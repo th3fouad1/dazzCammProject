@@ -61,6 +61,45 @@ data class LightLeakSpec(
     val variants: List<Int> = listOf(0, 1, 2, 3),
 )
 
+enum class PresetKind(val id: String) {
+    PHOTO("photo"), VIDEO("video");
+
+    companion object {
+        fun fromId(id: String): PresetKind? = entries.firstOrNull { it.id == id }
+    }
+}
+
+enum class VideoStyle(val id: String, val code: Float) {
+    NONE("none", 0f), VHS("vhs", 1f), SUPER8("super8", 2f), DV("dv", 3f), BW16("bw16", 4f);
+
+    companion object {
+        fun fromId(id: String): VideoStyle? = entries.firstOrNull { it.id == id }
+    }
+}
+
+enum class VideoAspect(val id: String) {
+    R4_3("4:3"), R16_9("16:9");
+
+    companion object {
+        fun fromId(id: String): VideoAspect? = entries.firstOrNull { it.id == id }
+    }
+}
+
+/** Procedural, time-driven video-only effects. Values are normalized intensities. */
+data class VideoEffectsSpec(
+    val style: VideoStyle = VideoStyle.NONE,
+    val aspect: VideoAspect = VideoAspect.R4_3,
+    val chromaBleed: Float = 0f,
+    val lumaNoise: Float = 0f,
+    val tracking: Float = 0f,
+    val scanlines: Float = 0f,
+    val gateWeave: Float = 0f,
+    val flicker: Float = 0f,
+    val roundedBorder: Float = 0f,
+    val lightLeaks: Float = 0f,
+    val scratches: Float = 0f,
+)
+
 enum class FrameId(val id: String, val code: Int) {
     NONE("none", 0), INSTANT_WHITE("instant_white", 1), FILM_STRIP("film_strip", 2),
     INSTANT_SQUARE("instant_square", 3), INSTANT_MINI("instant_mini", 4),
@@ -77,6 +116,7 @@ data class DateStampSpec(val enabledByDefault: Boolean = false, val color: Rgb =
 /** One look's data record (SPEC §7.1). Every field has a neutral default. */
 data class Preset(
     val id: String,
+    val kind: PresetKind = PresetKind.PHOTO,
     val displayNameRes: String = id,
     val lut: String? = null,
     val lutStrength: Float = 1f,
@@ -100,6 +140,7 @@ data class Preset(
     val dust: Float = 0f,
     val defaultFrame: FrameId = FrameId.NONE,
     val dateStamp: DateStampSpec = DateStampSpec(),
+    val video: VideoEffectsSpec = VideoEffectsSpec(),
 ) {
     companion object {
         /** Built-in identity preset used when presets.json is unusable. */

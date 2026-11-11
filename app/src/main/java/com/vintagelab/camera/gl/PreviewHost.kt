@@ -26,6 +26,22 @@ class PreviewHost(
 
     fun createView(context: Context): GLSurfaceView = GLSurfaceView(context).apply {
         setEGLContextClientVersion(3)
+        setEGLConfigChooser { egl, display ->
+            val attrs = intArrayOf(
+                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
+                EncoderEglSurface.EGL_RENDERABLE_TYPE, EncoderEglSurface.EGL_OPENGL_ES3_BIT_KHR,
+                EncoderEglSurface.EGL_RECORDABLE_ANDROID, 1,
+                javax.microedition.khronos.egl.EGL10.EGL_NONE,
+            )
+            val count = IntArray(1)
+            check(egl.eglChooseConfig(display, attrs, null, 0, count) && count[0] > 0) { "no recordable ES3 EGL config" }
+            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(count[0])
+            check(egl.eglChooseConfig(display, attrs, configs, configs.size, count)) { "recordable EGL config query failed" }
+            configs[0] ?: error("recordable EGL config missing")
+        }
         preserveEGLContextOnPause = true
         val r = GlPreviewRenderer(
             this, readAsset, luts, strict, ContextCompat.getMainExecutor(context),

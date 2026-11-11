@@ -5,6 +5,11 @@ uniform vec2 uDistortion; // (barrel, circularMask)
 uniform float uShortSide;
 uniform vec2 uOutSize;
 uniform vec2 uPrism; // (mode 0 off / 1 split / 2 tri / 3 halo, amount)
+uniform float uVideoStyle;
+uniform vec4 uVideoFxA; // bleed, noise, tracking, scanlines
+uniform vec4 uVideoFxB; // gate weave, flicker, rounded border, light leaks
+uniform float uTime;
+uniform float uFrameIndex;
 
 // Image uv (y down) -> Pass 0 texel, clamped to the image.
 vec3 tapImg(vec2 s) {
@@ -49,6 +54,13 @@ void main() {
     vec2 p = (img - 0.5) * aspect; // normalized units, centre origin
     vec2 q = fxDistort(p, uDistortion.x);
     vec2 s = q / aspect + 0.5;
+    if (uVideoStyle > 0.5) {
+        // Gate weave is sub-pixel-scale at 1080 short-side; VHS tracking drifts in soft horizontal bands.
+        vec2 weave = vec2(sin(uFrameIndex * 1.73), cos(uFrameIndex * 1.11)) * (0.0013 * uVideoFxB.x) / aspect;
+        float band = sin(s.y * 43.0 + uTime * 2.4) * sin(s.y * 7.0 - uTime * 0.7);
+        s += weave;
+        s.x += band * 0.006 * uVideoFxA.z / aspect.x;
+    }
     vec3 c = texture(uInput, vec2(s.x, 1.0 - s.y)).rgb;
     c = fxPrism(c, s, aspect, uPrism.x, uPrism.y);
     c *= fxCircularMask(p, uDistortion.y, uShortSide);

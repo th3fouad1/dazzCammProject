@@ -1,10 +1,14 @@
 package com.vintagelab.camera.ui
 
 import android.app.Application
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.Bitmap
 import android.util.Log
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
 import androidx.camera.core.ImageCapture
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -43,6 +47,14 @@ import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.LookState
 import com.vintagelab.camera.looks.PrismMode
 import com.vintagelab.camera.looks.PresetRepository
+import com.vintagelab.camera.looks.PresetKind
+import com.vintagelab.camera.looks.VideoAspect
+import com.vintagelab.camera.video.ActiveVideoRecording
+import com.vintagelab.camera.video.RecordingEvent
+import com.vintagelab.camera.video.RecordingPhase
+import com.vintagelab.camera.video.RecordingStateMachine
+import com.vintagelab.camera.video.StopReason
+import com.vintagelab.camera.video.VideoLimits
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,6 +95,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private var displayRotation = 0
     private var boundKey: Any? = null
     private var countdownJob: Job? = null
+    private var videoTickerJob: Job? = null
+    private var activeVideo: ActiveVideoRecording? = null
+    private var finishingVideo: ActiveVideoRecording? = null
+    private var audioPermissionAsked = false
+    private var photoLookId = "classic35"
+    private var videoLookId = "vhs"
+    private var photoRatio = AspectRatio.R4_3
+    private var photoFrame = FrameId.NONE
+    private var photoDateStamp = false
 
     private class ShotJob(
         val input: CaptureInput, val settings: CaptureSettings, val kind: ShotKind, val mode: MultiMode, val bgEpoch: Int,
@@ -117,6 +138,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 when (e) {
                     PreviewEvent.GpuUnsupported -> _state.update { it.copy(camera = CameraStatus.Error(CameraErrorKind.GpuUnsupported)) }
                     PreviewEvent.Passthrough -> _state.update { it.copy(renderMode = RenderMode.Passthrough) }
+                    PreviewEvent.VideoEncoderError -> stopVideo(StopReason.CameraError, reportError = true)
                     else -> Unit
                 }
             }
@@ -125,19 +147,32 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             val repo = withContext(Dispatchers.IO) { app.presets }
             presets = repo
             val prefs = withContext(Dispatchers.IO) { app.settings.data.first() }
-            val lastShot = withContext(Dispatchers.IO) { app.saver.newestOwn() }
+            val lastShot = withContext(Dispatchers.IO) { app.gallery.newest() }
             app.keepNegatives = prefs[KEY_KEEP] ?: true
-            val lookId = prefs[KEY_LOOK]?.takeIf { id -> repo.presets.any { it.id == id } } ?: repo.default.id
+            audioPermissionAsked = prefs[KEY_AUDIO_ASKED] ?: false
+            photoLookId = prefs[KEY_LOOK]?.takeIf { id -> repo.presets.any { it.id == id && it.kind == PresetKind.PHOTO } }
+                ?: repo.defaultFor(PresetKind.PHOTO).id
+            videoLookId = prefs[KEY_VIDEO_LOOK]?.takeIf { id -> repo.presets.any { it.id == id && it.kind == PresetKind.VIDEO } }
+                ?: repo.defaultFor(PresetKind.VIDEO).id
+            val photoPreset = repo.get(photoLookId)
+            photoRatio = prefs[KEY_RATIO]?.let { r -> AspectRatio.entries.firstOrNull { it.name == r } } ?: photoRatio
+            photoFrame = prefs[KEY_FRAME]?.let { FrameId.fromId(it) } ?: photoPreset.defaultFrame
+            photoDateStamp = prefs[KEY_STAMP] ?: photoPreset.dateStamp.enabledByDefault
+            val initialMode = prefs[KEY_MODE]?.let { runCatching { CameraMode.valueOf(it) }.getOrNull() } ?: CameraMode.Photo
+            val lookId = if (initialMode == CameraMode.Video) videoLookId else photoLookId
             val preset = repo.get(lookId)
             _state.update { s ->
                 s.copy(
-                    looks = repo.presets.map { LookUi(it.id, it.displayNameRes, it.lightLeak.probability > 0f || it.dust > 0f) },
+                    mode = initialMode,
+                    looks = repo.presetsFor(if (initialMode == CameraMode.Video) PresetKind.VIDEO else PresetKind.PHOTO)
+                        .map { LookUi(it.id, it.displayNameRes, it.lightLeak.probability > 0f || it.dust > 0f) },
                     lookId = lookId,
-                    ratio = prefs[KEY_RATIO]?.let { r -> AspectRatio.entries.firstOrNull { it.name == r } } ?: s.ratio,
+                    ratio = if (initialMode == CameraMode.Video) preset.video.aspect.toAspectRatio()
+                        else photoRatio,
                     flash = prefs[KEY_FLASH]?.let { f -> FlashMode.entries.firstOrNull { it.name == f } } ?: s.flash,
                     timer = prefs[KEY_TIMER]?.let { t -> TimerMode.entries.firstOrNull { it.name == t } } ?: s.timer,
-                    frame = prefs[KEY_FRAME]?.let { FrameId.fromId(it) } ?: preset.defaultFrame,
-                    dateStamp = prefs[KEY_STAMP] ?: preset.dateStamp.enabledByDefault,
+                    frame = if (initialMode == CameraMode.Video) FrameId.NONE else photoFrame,
+                    dateStamp = if (initialMode == CameraMode.Video) false else photoDateStamp,
                     flashGel = prefs[KEY_GEL]?.let { g -> FlashGel.entries.firstOrNull { it.name == g } } ?: s.flashGel,
                     prism = prefs[KEY_PRISM]?.let { g -> PrismMode.entries.firstOrNull { it.name == g } } ?: s.prism,
                     keepNegatives = prefs[KEY_KEEP] ?: true,
@@ -152,9 +187,17 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onIntent(intent: CameraIntent) {
         when (intent) {
+            is CameraIntent.SetMode -> setMode(intent.mode)
             is CameraIntent.SelectLook -> {
+                if (_state.value.recording.phase in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)) return
                 val p = presets?.get(intent.id) ?: return
+                if ((p.kind == PresetKind.VIDEO) != (_state.value.mode == CameraMode.Video)) return
+                if (p.kind == PresetKind.VIDEO) videoLookId = p.id else photoLookId = p.id
                 _state.update { it.copy(lookId = p.id, frame = MultiShotRules.enforceFrame(it.multi, it.frame, p.defaultFrame), dateStamp = p.dateStamp.enabledByDefault) }
+                if (p.kind == PresetKind.VIDEO) {
+                    _state.update { it.copy(ratio = p.video.aspect.toAspectRatio(), frame = FrameId.NONE, dateStamp = false) }
+                    rebindIfNeeded()
+                }
                 persist()
             }
             CameraIntent.ToggleLens -> {
@@ -211,7 +254,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 persist()
             }
             CameraIntent.Shuffle -> _state.update { it.copy(lookSeed = Random.nextLong()) }
-            CameraIntent.Shutter -> shutter()
+            CameraIntent.Shutter -> if (_state.value.mode == CameraMode.Video) videoShutter() else shutter()
             is CameraIntent.TapFocus -> focus(intent.x, intent.y)
             is CameraIntent.Zoom -> {
                 val z = intent.linear.coerceIn(0f, 1f)
@@ -233,6 +276,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 rebindIfNeeded()
             }
             CameraIntent.LastShotUnavailable -> _state.update { it.copy(lastShot = null) }
+            is CameraIntent.RecordAudioPermissionResult -> {
+                audioPermissionAsked = true
+                if (!intent.granted) _state.update { it.copy(audioDeniedNoticeSeq = it.audioDeniedNoticeSeq + 1) }
+                persist()
+                startVideo(intent.granted)
+            }
         }
         refreshPreviewLook()
     }
@@ -248,6 +297,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun detach(owner: LifecycleOwner) {
         if (this.owner !== owner) return
+        stopVideo(StopReason.Background)
         this.owner = null
         renderer = null
         boundKey = null
@@ -268,7 +318,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     /** A photo was saved or deleted outside the camera (editor, gallery): re-read the newest one for the thumbnail. */
     fun refreshLastShot() {
         viewModelScope.launch {
-            val newest = withContext(Dispatchers.IO) { app.saver.newestOwn() }
+            val newest = withContext(Dispatchers.IO) { app.gallery.newest() }
             _state.update { it.copy(lastShot = newest) }
         }
     }
@@ -297,7 +347,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     else -> CameraErrorKind.Fatal
                 }
                 it.copy(camera = CameraStatus.Error(kind))
-            }
+            }.also { stopVideo(StopReason.CameraError, reportError = true) }
             is CameraEvent.ZoomChanged -> _state.update { it.copy(zoom = e.linear, zoomRatio = e.ratio, zoomRange = e.min..e.max) }
         }
     }
@@ -343,6 +393,162 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // ---- shutter / capture ----
+
+    private fun setMode(mode: CameraMode) {
+        val s = _state.value
+        if (s.mode == mode || s.recording.phase in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)) return
+        if (s.mode == CameraMode.Photo) {
+            photoRatio = s.ratio
+            photoFrame = s.frame
+            photoDateStamp = s.dateStamp
+        }
+        val repo = presets ?: return
+        if (mode == CameraMode.Video && s.multiMode != MultiMode.None) applyMulti(MultiShotRules.toggle(s.multi, s.multiMode))
+        val kind = if (mode == CameraMode.Video) PresetKind.VIDEO else PresetKind.PHOTO
+        val id = if (mode == CameraMode.Video) videoLookId else photoLookId
+        val preset = repo.get(id).takeIf { it.kind == kind } ?: repo.defaultFor(kind)
+        _state.update {
+            it.copy(
+                mode = mode,
+                lookId = preset.id,
+                looks = repo.presetsFor(kind).map { p -> LookUi(p.id, p.displayNameRes, p.lightLeak.probability > 0f || p.dust > 0f) },
+                ratio = if (mode == CameraMode.Video) preset.video.aspect.toAspectRatio() else photoRatio,
+                frame = if (mode == CameraMode.Video) FrameId.NONE else photoFrame,
+                dateStamp = if (mode == CameraMode.Video) false else photoDateStamp,
+                recording = if (mode == CameraMode.Video) it.recording else com.vintagelab.camera.video.RecordingState(),
+            )
+        }
+        persist()
+        boundKey = null
+        refreshPreviewLook()
+        rebindIfNeeded()
+    }
+
+    private fun videoShutter() {
+        val s = _state.value
+        when (s.recording.phase) {
+            RecordingPhase.Recording -> stopVideo(StopReason.User)
+            RecordingPhase.Starting, RecordingPhase.Stopping -> Unit
+            else -> {
+                if (s.camera != CameraStatus.Ready) return
+                val granted = ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                if (granted || audioPermissionAsked) startVideo(granted)
+                else _state.update { it.copy(audioPermissionRequestSeq = it.audioPermissionRequestSeq + 1) }
+            }
+        }
+    }
+
+    private fun startVideo(withAudio: Boolean) {
+        val repo = presets ?: return
+        val s = _state.value
+        if (s.mode != CameraMode.Video || s.recording.phase in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)) return
+        val preset = repo.get(s.lookId)
+        if (preset.kind != PresetKind.VIDEO) return
+        _state.update { it.copy(recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Start), videoStorageFull = false) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { app.videoRecorder.start(preset.video.aspect, s.imagePortrait, withAudio) }
+            result.onFailure { t ->
+                Log.e(TAG, "video start failed", t)
+                _state.update {
+                    it.copy(
+                        recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Failed),
+                        videoErrorSeq = it.videoErrorSeq + 1,
+                        videoStorageFull = isStorageFull(t),
+                    )
+                }
+            }.onSuccess { started ->
+                val recording = started.recording
+                activeVideo = recording
+                if (started.used720pFallback) _state.update { it.copy(videoFallbackNoticeSeq = it.videoFallbackNoticeSeq + 1) }
+                if (withAudio && !recording.hasAudio) _state.update { it.copy(audioDeniedNoticeSeq = it.audioDeniedNoticeSeq + 1) }
+                if (_state.value.recording.phase == RecordingPhase.Stopping) {
+                    finishVideo(recording)
+                    return@onSuccess
+                }
+                renderer?.startRecording(recording.target) ?: run {
+                    stopVideo(StopReason.CameraError, reportError = true)
+                    return@onSuccess
+                }
+                val startedAt = SystemClock.elapsedRealtime()
+                _state.update { it.copy(recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Started)) }
+                videoTickerJob?.cancel()
+                videoTickerJob = viewModelScope.launch {
+                    while (_state.value.recording.phase == RecordingPhase.Recording) {
+                        delay(200)
+                        val elapsed = SystemClock.elapsedRealtime() - startedAt
+                        _state.update { it.copy(recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Tick(elapsed))) }
+                        val failure = activeVideo?.failureOrNull()
+                        if (failure != null) {
+                            stopVideo(StopReason.CameraError, reportError = true)
+                            break
+                        }
+                        if (_state.value.recording.phase == RecordingPhase.Stopping) {
+                            stopVideo(StopReason.Cap)
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopVideo(reason: StopReason, reportError: Boolean = false) {
+        val phase = _state.value.recording.phase
+        if (phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)) return
+        if (phase != RecordingPhase.Stopping) {
+            _state.update { it.copy(recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Stop(reason))) }
+        }
+        videoTickerJob?.cancel()
+        videoTickerJob = null
+        val recording = activeVideo ?: return
+        val finish = { finishVideo(recording, reportError) }
+        renderer?.stopRecording(finish) ?: finish()
+    }
+
+    private fun finishVideo(recording: ActiveVideoRecording, reportError: Boolean = false) {
+        if (activeVideo !== recording) return
+        if (finishingVideo === recording) return
+        finishingVideo = recording
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { recording.stop() }
+            activeVideo = null
+            finishingVideo = null
+            result.onSuccess { uri ->
+                _state.update {
+                    it.copy(
+                        recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Saved),
+                        lastShot = uri,
+                    )
+                }
+            }.onFailure { t ->
+                Log.e(TAG, "video finish failed", t)
+                _state.update { current ->
+                    if (current.recording.stopReason == StopReason.Background && current.recording.elapsedMs == 0L) {
+                        current.copy(recording = RecordingStateMachine.reduce(current.recording, RecordingEvent.Reset))
+                    } else {
+                        current.copy(
+                            recording = RecordingStateMachine.reduce(current.recording, RecordingEvent.Failed),
+                            videoErrorSeq = current.videoErrorSeq + 1,
+                            videoStorageFull = isStorageFull(t),
+                        )
+                    }
+                }
+            }
+            if (reportError && result.isSuccess) {
+                _state.update { it.copy(videoErrorSeq = it.videoErrorSeq + 1) }
+            }
+        }
+    }
+
+    private fun isStorageFull(t: Throwable): Boolean {
+        var e: Throwable? = t
+        while (e != null) {
+            val text = e.message.orEmpty().lowercase()
+            if ("enospc" in text || "no space" in text || "disk full" in text) return true
+            e = e.cause
+        }
+        return false
+    }
 
     private fun canAccept() = !taking && outstanding < MultiShotRules.maxOutstanding(_state.value.multi) &&
         _state.value.multiExposure != MultiExposure.Burst
@@ -632,6 +838,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     /** MainActivity.onStop: drop the first exposure and the ghost so nothing stays in memory in the background. */
     fun onBackground() {
+        stopVideo(StopReason.Background)
         bgEpoch++
         app.capturePipeline.clearFirst()
         ghost = null
@@ -673,29 +880,46 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val s = _state.value
         renderer?.look = PreviewLook(
             repo.get(s.lookId),
-            LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList(), prism = MultiShotRules.effectivePrism(s.multiMode, s.prism)),
+            LookState(
+                s.lookSeed,
+                s.frame,
+                s.dateStamp,
+                DateStamp.codes(LocalDate.now().atStartOfDay()).toList(),
+                prism = MultiShotRules.effectivePrism(s.multiMode, s.prism),
+                videoStampCodes = DateStamp.videoCodes(LocalDateTime.now()).toList(),
+            ),
         )
     }
 
     private fun persist() {
         val s = _state.value
+        if (s.mode == CameraMode.Photo) {
+            photoRatio = s.ratio
+            photoFrame = s.frame
+            photoDateStamp = s.dateStamp
+        }
         viewModelScope.launch(Dispatchers.IO) {
             app.settings.edit { p ->
-                p[KEY_LOOK] = s.lookId
-                p[KEY_RATIO] = s.ratio.name
+                p[KEY_LOOK] = photoLookId
+                p[KEY_RATIO] = photoRatio.name
                 p[KEY_FLASH] = s.flash.name
                 p[KEY_TIMER] = s.timer.name
-                p[KEY_FRAME] = s.frame.id
-                p[KEY_STAMP] = s.dateStamp
+                p[KEY_FRAME] = photoFrame.id
+                p[KEY_STAMP] = photoDateStamp
                 p[KEY_GEL] = s.flashGel.name
                 p[KEY_PRISM] = s.prism.name
                 p[KEY_KEEP] = s.keepNegatives
+                p[KEY_MODE] = s.mode.name
+                p[KEY_VIDEO_LOOK] = videoLookId
+                p[KEY_AUDIO_ASKED] = audioPermissionAsked
             }
         }
     }
 
     override fun onCleared() {
         countdownJob?.cancel()
+        videoTickerJob?.cancel()
+        stopVideo(StopReason.Background)
         jobs.close() // queued jobs still finish in appScope
         previewHost.onRendererReady = null
         previewHost.onContextLost = null
@@ -713,5 +937,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val KEY_GEL = stringPreferencesKey("flashGel")
         val KEY_PRISM = stringPreferencesKey("prism")
         val KEY_KEEP = booleanPreferencesKey("keepNegatives")
+        val KEY_MODE = stringPreferencesKey("cameraMode")
+        val KEY_VIDEO_LOOK = stringPreferencesKey("videoLookId")
+        val KEY_AUDIO_ASKED = booleanPreferencesKey("recordAudioAsked")
     }
+}
+
+private fun VideoAspect.toAspectRatio(): AspectRatio = when (this) {
+    VideoAspect.R4_3 -> AspectRatio.R4_3
+    VideoAspect.R16_9 -> AspectRatio.R16_9
 }

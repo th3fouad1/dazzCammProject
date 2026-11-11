@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Status | DRAFT v0.3 — 2026-11-11 |
+| Status | DRAFT v0.4 — 2026-11-11 |
 | Owner | Project owner (the user) — approves looks, names, scope |
 | Integrator / reviewer | Claude (main session) |
 | Related | `docs/reviews/spec-review-v0.1.md` (Goldfish review), `docs/DESIGN.md` (pending, Visual Storyteller), `third_party/t3mujinpack/NOTICE.md` |
-| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) · v0.2.2 Sprint A.1: contract K1–K17 (§6.2), next-shot rule (§5.3), capture memory (§6.5) · v0.3 v1.1: import + editor (§6.7), in-app gallery (§6.8), negatives (§6.9), D19–D24, privacy note (§4) |
+| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) · v0.2.2 Sprint A.1: contract K1–K17 (§6.2), next-shot rule (§5.3), capture memory (§6.5) · v0.3 v1.1: import + editor (§6.7), in-app gallery (§6.8), negatives (§6.9), D19–D24 · v0.4 v2: filtered video recording (§6.10), video looks (§7.5), D25–D30 |
 
 > **Read §5 (pipeline & parity) first** — it is the hard constraint.
 
@@ -38,8 +38,8 @@ phone's gallery within ~2.5 s.
 5. Save JPEG to MediaStore `Pictures/<SAVE_FOLDER>`; last-shot thumbnail opens it (v1: `ACTION_VIEW`; v1.1: our own viewer, §6.8).
 6. In-app "Open-source licenses" screen (t3mujinpack MIT).
 
-### 3.2 Deferred (v1.2+)
-Video, accessories (overlay effects imitating physical lens add-ons), more looks, billing.
+### 3.2 Deferred
+Accessories (overlay effects imitating physical lens add-ons), billing, video import and video re-development.
 
 **Delivered in v1.1 (owner decision D7, review S8/S9 Option B):** photo import and editor (§6.7), in-app gallery (§6.8), re-develop from stored
 negatives (§6.9). Out of scope for v1.1: batch import, video import, cropping/rotating in the editor, cloud backup of negatives, editing photos not saved by this app
@@ -80,6 +80,8 @@ the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes 
   their photo or when the app is uninstalled (`allowBackup=false`, excluded from data extraction), and can be switched off with "Keep negatives". They hold no GPS:
   the camera path never keeps it, the import path strips it (the working source is re-encoded without metadata; only the copied tag whitelist is stored). Data Safety
   answer stays "no data collected or shared".
+- **Microphone (v2):** `RECORD_AUDIO` is requested only when the user starts their first video. `AudioRecord` runs only while a clip is recording. If permission is denied,
+  the clip is recorded silently after a short notice. Audio and video remain in the on-device MP4; nothing leaves the device.
 - Output EXIF via `androidx.exifinterface`: copy DateTimeOriginal, OffsetTime*, Make, Model,
   ExposureTime, FNumber, ISOSpeedRatings, FocalLength; set Orientation=1 and Software=app_name. Never write GPS (also for imports and re-develops).
 - targetSdk 36: `enableEdgeToEdge()`, `WindowInsets.safeDrawing` + cutout padding, back via `BackHandler`,
@@ -316,6 +318,26 @@ Every saved photo also keeps its *negative* in app-private storage `filesDir/neg
   stays as shot.
 - **Setting**: "Keep negatives" (⋯ menu, DataStore `keepNegatives`, default on).
 
+### 6.10 Video pipeline (v2)
+
+Video uses the CameraX `Preview` stream already feeding the OES texture; it never binds CameraX `VideoCapture`. On each camera frame the preview GL thread calls
+`updateTexImage()` once, runs the fixed graph for the screen, then runs that same graph, with the same `PreviewLook`, source transform, `uTime`, frame index and stamp data,
+into a MediaCodec input `Surface`. `PreviewHost` chooses an `EGL_RECORDABLE_ANDROID` ES3 config. `EncoderEglSurface` creates an EGL14 window surface on the codec Surface
+using the preview context's exact config, calls `eglPresentationTimeANDROID` with the normalized `SurfaceTexture.timestamp`, swaps, and restores the view surface.
+
+`video/VideoRecorder` configures H.264 surface input at 30 fps and about 12 Mbps. Output is 1080 pixels on the short side (4:3 = 1440×1080, 16:9 = 1920×1080,
+swapped for portrait); if configuration fails it retries 720 on the short side. Pixels are rendered upright, so the MP4 orientation hint is 0. A slow encoder swap causes the
+next encoder frame to be skipped rather than allowing repeated back-pressure to stall the preview. The drain thread continuously releases codec output buffers.
+
+With microphone permission, `AudioRecord` captures 48 kHz mono PCM into an AAC-LC MediaCodec at 128 kbps. Audio PTS derives from the submitted sample count; video PTS
+is zero-based and strictly monotonic from camera timestamps. Both clocks begin with the recording session. The single drain thread adds tracks, starts `MediaMuxer` only after
+all output formats arrive, and muxes into an `IS_PENDING=1` row in `Movies/<SAVE_FOLDER>`. Success clears pending; every setup, codec, muxer, storage-full or cancellation failure
+closes the descriptor and deletes the row. Startup removes stale pending video rows.
+
+The state machine is `Idle → Starting → Recording → Stopping → Saved|Error`. User stop, the 3:00 cap, Activity background/onStop, camera error and GL encoder error all enter
+`Stopping`; the encoder EGL surface is detached on the GL thread before input EOS. Video looks are exclusive to Video mode, photo looks are exclusive to Photo mode. A video
+never creates a negative. Gallery queries combine owned finished image and video rows, shows a play overlay, uses platform `VideoView`, and shares/deletes both media types.
+
 ## 7. Shader contract
 
 ### 7.1 presets.json (schemaVersion 1)
@@ -324,6 +346,7 @@ Every saved photo also keeps its *negative* in app-private storage `filesDir/neg
 | field | type / range | default |
 |---|---|---|
 | `id` | string, unique, required | — |
+| `kind` | `"photo"\|"video"` | photo |
 | `displayNameRes` | string-resource key | id |
 | `lut` | asset id in `luts/` or null | null (identity) |
 | `lutStrength` | [0,1] | 1 |
@@ -345,6 +368,7 @@ Every saved photo also keeps its *negative* in app-private storage `filesDir/neg
 | `dust` | [0,1] | 0 |
 | `defaultFrame` | `"none"\|"instant_white"\|"film_strip"\|"instant_square"\|"instant_mini"\|"film120"\|"slide_mount"\|"pano_sprocket"` | none |
 | `dateStamp` | `{enabledByDefault:bool, color:"#RRGGBB"}` | false, #FF8A1F |
+| `video` | `{style:"none"\|"vhs"\|"super8"\|"dv"\|"bw16", aspect:"4:3"\|"16:9", chromaBleed,lumaNoise,tracking,scanlines,gateWeave,roundedBorder,lightLeaks,scratches:[0,1], flicker:[0,0.03]}` | neutral |
 
 Validation: out-of-range → clamp + WARN; duplicate/missing id → skip + ERROR; malformed JSON → built-in
 identity preset `none`. presets.json holds numbers and ids only; leak/dust are procedural per GL context.
@@ -356,6 +380,9 @@ identity preset `none`. presets.json holds numbers and ids only; leak/dust are p
 `vec2 uCenterGlow; float uSoftFocus; vec2 uBloom; float uSharpen; vec2 uDistortion;`
 `vec4 uLeak (enabled,variant,amount,angle); vec2 uLeakPos; float uDust; float uSeed;`
 `int uFrame; vec4 uStampColor; float uStampOn; vec4 uStampDigits[2]` (8 glyph codes).
+v2 adds `float uTime; float uFrameIndex; float uVideoStyle; vec4 uVideoFxA; vec4 uVideoFxB; float uVideoScratches; vec4 uVideoStamp[5]`.
+`uVideoFxA` = chroma bleed, luma noise, tracking, scanlines; `uVideoFxB` = gate weave, flicker, rounded border, light leaks. All spatial values remain normalized
+to the final image short side. `uVideoStamp` holds 20 procedural glyph codes for `MMM dd yyyy HH:mm`.
 *Phase A notes.* `uLutStrength` is the mix of the whole baked look against the input and is 1 for every
 preset (the preset's `lutStrength` mixes only the film LUT, inside the bake). Extra uniforms beyond this list:
 Pass 0 `mat3 uSrcMatrix` (upright image uv → buffer uv, from `looks/CropMath.kt` `SourceTransform`) and
@@ -448,8 +475,21 @@ and capture match; it is off in `ParityTest`. Split: the right-hand side is mirr
 Tri: three copies displaced 0.05 S at 90, 210, 330 degrees, weight 1/3 each; Halo: 9-tap radial zoom blur (to 0.88x) confined to a ring
 0.18-0.36 S (in) and 0.52-0.80 S (out) around the centre, 85 %. While half-frame or grid is armed the prism is disabled (preview and capture; `MultiShotRules.effectivePrism`): applied over the composite it would only affect its right side, unlike the per-frame preview.
 
-### 7.5 Decisions (B3, B4)
-See D11-D14 and D15-D18 in section 11.
+### 7.5 Video looks (v2)
+
+All four records have `kind:"video"`; no photo/editor surface lists them. Their motion is driven only by `uTime` / `uFrameIndex`, so screen and encoder receive identical fields.
+
+| id / label | aspect | grade and procedural treatment |
+|---|---|---|
+| `vhs` / Tape | 4:3 | warm desaturated Gold grade; horizontal chroma bleed, luma noise, drifting tracking bands, scanlines; bottom-left white `MMM dd yyyy HH:mm` stamp |
+| `super8` / Reel 8 | 4:3 | warm Gold grade; heavy animated grain, sub-pixel gate weave, exposure flicker clamped to ±3%, rounded dark gate border and animated light leak |
+| `dv` / Mini DV | 16:9 | cool, sharpened low-chroma grade, mild scanline artifact; bottom-left orange date/time stamp; interlace-on-motion intentionally omitted |
+| `bw16` / Silent 16 | 4:3 | Tri-X monochrome grade, strong animated grain, flicker, vignette, gate weave and sparse procedural vertical scratches |
+
+The stamp glyphs are GLSL SDF/segment shapes; there is no font or copied camcorder asset. Super 8 and Silent 16 intentionally have no date stamp.
+
+### 7.6 Decisions (B3, B4)
+See D11-D18 in section 11.
 
 ## 8. Behaviour & failure handling
 
@@ -495,6 +535,9 @@ Manifest: `android.hardware.camera.any` required; `camera.flash`, `camera.autofo
 - `OrientationTest`: 4 rotations × 2 lens facings × 3 ratios.
 - `HaldClutConverterTest`: identity HaldCLUT → identity 33³ ±1/255.
 - `ParityTest` (androidTest): §5.1.
+- `VideoTimingTest`: camera presentation timestamps are zero-based and strictly monotonic; audio sample clock alignment.
+- `RecordingStateMachineTest`: start/record/stop/save/error, background stop and the 3-minute cap.
+- Video additions to `PresetParserTest` and `StringResourcesTest`: schema parsing, `kind` filtering and complete EN/FR copy.
 
 ## 10. Alternatives considered
 | decision | chosen | rejected | trade-off |
@@ -542,6 +585,12 @@ pipeline stays.
 | D22 | delete = `createDeleteRequest` on API 30+, `delete` + `RecoverableSecurityException` flow on API 29; the negative goes with the photo | Accepted | 2026-11-11 |
 | D23 | negatives in `filesDir/negatives/<mediaId>/` (source.jpg q95 <= 3072 px upright pre-frame-crop, settings.json schemaVersion 1, optional blend.jpg); newest 200 / 1.5 GB, LRU by last open; written once after a successful save and never failing it; "Keep negatives" default on. Composite modes store the composed bitmap; double exposure stores shot 2 + the developed first exposure | Accepted | 2026-11-11 |
 | D24 | re-develop and import saves create a NEW photo whose file name and `DATE_TAKEN` are the save time (so it sorts first); the stamp and EXIF DateTimeOriginal keep the original date | Accepted | 2026-11-11 |
+| D25 | video is encoded from the existing CameraX Preview OES stream by rendering the same fixed graph twice on the preview GL thread: screen then MediaCodec EGL window surface; no CameraX VideoCapture | Accepted | 2026-11-11 |
+| D26 | H.264 surface input = 1080 short side, 30 fps, ~12 Mbps; retry once at 720 short side; encoder frames use normalized camera timestamps through `eglPresentationTimeANDROID` | Accepted | 2026-11-11 |
+| D27 | encoder dimensions follow the upright output orientation and pixels are rendered upright; MP4 orientation hint is therefore 0, avoiding player-dependent rotation | Accepted | 2026-11-11 |
+| D28 | audio = `AudioRecord` 48 kHz mono → AAC-LC 128 kbps; denial is a supported silent-recording path, and the permission is first requested at record | Accepted | 2026-11-11 |
+| D29 | video rows use `Movies/<SAVE_FOLDER>` + `IS_PENDING`; gallery queries both owned Pictures and Movies rows through MediaStore Files; `VideoView` avoids a new playback dependency | Accepted | 2026-11-11 |
+| D30 | video presets are `kind:"video"`, photo presets default to `kind:"photo"`; interlace-on-motion is omitted, as permitted, to protect the 30 fps budget | Accepted | 2026-11-11 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |
@@ -553,6 +602,8 @@ pipeline stays.
 | R5 | trademark (app label, film names) | rename before release; own display names | C |
 | R6 | negatives grow storage / unexpected for users | cap 200 / 1.5 GB, LRU, "Keep negatives" off switch, removed with the photo | v1.1 |
 | R7 | `ImageDecoder` orientation behaviour differs per codec/OEM | `ExifOrientation` fallback path; on-device check of rotated JPEG/HEIC before release | v1.1 |
+| R8 | a vendor codec can block `eglSwapBuffers` despite continuous drain | recordable EGL config, drain on a dedicated thread, skip the next encoder frame after a >25 ms encoder render/swap; measure on OnePlus 11 | v2 |
+| R9 | AAC and first video frame can start at slightly different wall times | zero-based clocks, audio PTS from sample count, ffprobe A/V duration check on the reference device | v2 |
 
 ## 13. Delivery plan
 
@@ -665,4 +716,10 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
 | Negatives prune after deleting photos outside the app | PASS — 7 → 4 negatives on next launch |
 | Viewer paging stress (25 fast swipes) | PASS — no crash, PSS stable |
 Risk R7 (ImageDecoder orientation / HEIC) closed.
+
+## Appendix F — v2 device verification
+
+Pending the final gate run. If the OnePlus 11 is available over adb, record about five seconds in Tape, Reel 8, Mini DV and Silent 16, pull the rows from
+`/sdcard/Movies/<SAVE_FOLDER>/`, and record ffprobe codec, dimensions, average frame rate, audio codec and duration here. If it is not listed by `adb devices`,
+the release report must say "device not available" and R8/R9 remain open.
 

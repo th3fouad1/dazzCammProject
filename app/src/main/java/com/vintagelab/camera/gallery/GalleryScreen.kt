@@ -17,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -59,6 +61,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -69,6 +73,9 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.MediaController
+import android.widget.VideoView
 import com.vintagelab.camera.R
 import com.vintagelab.camera.ui.icons.VlIcons
 import com.vintagelab.camera.ui.theme.VlColors
@@ -124,13 +131,13 @@ fun GalleryScreen(
         if (r.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // OK on API 30+ means the system already deleted the row.
-            vm.onDeleted(item.id)
+            vm.onDeleted(item)
             onPhotoDeleted()
             scope.launch { snackbar.showSnackbar(res.getString(R.string.msg_photo_deleted)) }
         } else {
             val ok = runCatching { context.contentResolver.delete(item.uri, null, null) > 0 }.getOrDefault(false)
             if (ok) {
-                vm.onDeleted(item.id)
+                vm.onDeleted(item)
                 onPhotoDeleted()
                 scope.launch { snackbar.showSnackbar(res.getString(R.string.msg_photo_deleted)) }
             } else scope.launch { snackbar.showSnackbar(res.getString(R.string.err_delete_failed)) }
@@ -144,7 +151,7 @@ fun GalleryScreen(
         } else {
             try {
                 if (context.contentResolver.delete(item.uri, null, null) > 0) {
-                    vm.onDeleted(item.id)
+                    vm.onDeleted(item)
                     onPhotoDeleted()
                     scope.launch { snackbar.showSnackbar(res.getString(R.string.msg_photo_deleted)) }
                 } else scope.launch { snackbar.showSnackbar(res.getString(R.string.err_delete_failed)) }
@@ -227,13 +234,13 @@ private fun Grid(state: GalleryState, vm: GalleryViewModel, onOpen: (Int) -> Uni
             if (last >= state.items.size - 12) vm.loadMore()
         }
     }
-    val cdFmt = stringResource(R.string.cd_photo_n)
     LazyVerticalGrid(
         GridCells.Adaptive(110.dp), Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), grid,
         horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         itemsIndexed(state.items, key = { _, it -> it.id }) { i, item ->
-            Thumb(item, Modifier.aspectRatio(1f).clickable(role = Role.Button) { onOpen(i) }.semantics { contentDescription = String.format(cdFmt, i + 1) })
+            val cd = stringResource(if (item.isVideo) R.string.cd_video_n else R.string.cd_photo_n, i + 1)
+            Thumb(item, Modifier.aspectRatio(1f).clickable(role = Role.Button) { onOpen(i) }.semantics { contentDescription = cd })
         }
     }
 }
@@ -249,6 +256,17 @@ private fun Thumb(item: GalleryItem, modifier: Modifier) {
     }
     Box(modifier.background(VlColors.Raised)) {
         bmp?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        if (item.isVideo) {
+            Canvas(Modifier.align(Alignment.Center).fillMaxSize(0.28f)) {
+                val path = Path().apply {
+                    moveTo(size.width * 0.28f, size.height * 0.15f)
+                    lineTo(size.width * 0.82f, size.height * 0.5f)
+                    lineTo(size.width * 0.28f, size.height * 0.85f)
+                    close()
+                }
+                drawPath(path, Color.White.copy(alpha = 0.9f))
+            }
+        }
     }
 }
 
@@ -272,7 +290,7 @@ private fun Viewer(
     LaunchedEffect(pager, items.size) {
         snapshotFlow { pager.currentPage }.collect { if (it >= items.size - 6) vm.loadMore() }
     }
-    val hasNegative = remember(item.id) { vm.hasNegative(item.id) }
+    val hasNegative = remember(item.id, item.isVideo) { !item.isVideo && vm.hasNegative(item.id) }
     Box(Modifier.fillMaxSize().background(VlColors.Bench)) {
         HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { p ->
             items.getOrNull(p)?.let { ViewerPage(it) }
@@ -288,7 +306,7 @@ private fun Viewer(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(VlColors.VfScrim).windowInsetsPadding(WindowInsets.safeDrawing),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            TextButton(onClick = { share(context, item.uri, res.getString(R.string.viewer_share)) }) { Text(stringResource(R.string.viewer_share), color = VlColors.Ink) }
+            TextButton(onClick = { share(context, item, res.getString(R.string.viewer_share)) }) { Text(stringResource(R.string.viewer_share), color = VlColors.Ink) }
             if (hasNegative) {
                 TextButton(onClick = { onRedevelop(item.id) }) { Text(stringResource(R.string.viewer_redevelop), color = VlColors.Amber) }
             }
@@ -297,12 +315,12 @@ private fun Viewer(
     }
 }
 
-private fun share(context: android.content.Context, uri: Uri, title: String) {
+private fun share(context: android.content.Context, item: GalleryItem, title: String) {
     val send = Intent(Intent.ACTION_SEND)
-        .setType("image/jpeg")
-        .putExtra(Intent.EXTRA_STREAM, uri)
+        .setType(item.mimeType)
+        .putExtra(Intent.EXTRA_STREAM, item.uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    send.clipData = ClipData.newRawUri(null, uri)
+    send.clipData = ClipData.newRawUri(null, item.uri)
     try {
         context.startActivity(Intent.createChooser(send, title))
     } catch (e: ActivityNotFoundException) {
@@ -313,6 +331,24 @@ private fun share(context: android.content.Context, uri: Uri, title: String) {
 /** One page: decoded at screen scale (long side at most 2048), never at full resolution. */
 @Composable
 private fun ViewerPage(item: GalleryItem) {
+    if (item.isVideo) {
+        val playCd = stringResource(R.string.cd_video_play)
+        AndroidView(
+            factory = { context ->
+                VideoView(context).apply {
+                    val controls = MediaController(context)
+                    controls.setAnchorView(this)
+                    setMediaController(controls)
+                    setVideoURI(item.uri)
+                    setOnPreparedListener { player -> player.isLooping = true; start() }
+                    contentDescription = playCd
+                }
+            },
+            update = { view -> if (view.tag != item.uri) { view.tag = item.uri; view.setVideoURI(item.uri); view.start() } },
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
     val context = LocalContext.current
     var bmp by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(item.id) { mutableStateOf(false) }

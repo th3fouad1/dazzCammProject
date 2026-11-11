@@ -11,6 +11,7 @@ import com.vintagelab.camera.gallery.GalleryRepository
 import com.vintagelab.camera.looks.PresetRepository
 import com.vintagelab.camera.negatives.NegativeStore
 import com.vintagelab.camera.storage.MediaStoreSaver
+import com.vintagelab.camera.video.VideoRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +25,7 @@ class App : Application() {
     val luts: LutLoader by lazy { LutLoader(assets) }
     val saver: MediaStoreSaver by lazy { MediaStoreSaver(contentResolver, packageName) }
     val gallery: GalleryRepository by lazy { GalleryRepository(contentResolver, packageName) }
+    val videoRecorder: VideoRecorder by lazy { VideoRecorder(contentResolver, packageName) }
     val negatives: NegativeStore by lazy { NegativeStore(java.io.File(filesDir, "negatives")) }
 
     /** "Keep negatives" setting (SPEC 6.9); loaded from DataStore by the view model, on by default. */
@@ -44,6 +46,7 @@ class App : Application() {
         super.onCreate()
         appScope.launch(Dispatchers.IO) {
             saver.cleanupPending()
+            videoRecorder.cleanupPending()
             // Negatives whose photo is gone (deleted in another app, reinstall) are dropped (only when the id query itself succeeded).
             gallery.allIds()?.let { negatives.prune(it) } // empty set = all our photos are gone → drop every negative
         }

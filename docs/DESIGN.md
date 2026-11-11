@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | DRAFT v0.2, 2026-11-11 |
+| Status | DRAFT v0.3, 2026-11-11 |
 | Authors | v0.1 Visual Storyteller · v0.2 UX Architect (lead) + UI Designer (visual system) |
 | Implements | `docs/SPEC.md` v0.2: §3 goals, §4 edge-to-edge, §6.2 state/intents, §7.3 frames/stamp, §8 behaviours |
 | Consumer | Phase B-UI (`ui/**` + new string keys) |
@@ -35,6 +35,7 @@ v0.1 had a strong mood, tokens, copy and swatch art. v0.2 keeps all of that. It 
 | 11 | **Integrator decisions applied.** Look names are approved as temporary working names. IBM Plex Mono is bundled (the "until approved" fallback is removed). `configChanges` is approved. `FrameGeometry.canvasAspect(...)` is contract, so the UI-side computation is removed. Token files are renamed `Color.kt`, `Type.kt`, `Shape.kt`, `Motion.kt`. §8 row "Pastel border" is renamed to Instant. | Decided by the integrator. |
 | 12 | **New §10 "Compose implementation map"**: composable tree, the state each composable reads and the intents it sends, and the `ui/theme/` plan. | This was missing from the B-UI entry criterion. |
 | — | **Kept on purpose: forced dark theme, no light/system toggle.** This departs from the UX Architect's usual default. | A viewfinder must be judged against a dark, neutral surround, and a light chrome would change how the image's colour is perceived. The Licenses screen stays dark for consistency. |
+| 13 | **v2 Video mode.** A thumb-reach Photo/Video segment sits between the viewfinder and looks; the shutter becomes record/stop; REC + timer use the existing safelight language. | Video needs a mode boundary and recording feedback without moving the established shooting loop or placing chrome over the image. |
 
 ---
 
@@ -1091,3 +1092,50 @@ The thumbnail opens the Viewer. The ⋯ menu (and the Mini controls sheet) gains
 | `viewer_share` | Share | Partager |
 | `viewer_delete` | Delete | Supprimer |
 | `viewer_redevelop` | Re-develop | Redévelopper |
+
+## 13. v2 Video mode
+
+### 13.1 Mode switch and look boundary
+
+The Photo / Video segmented switch is a 40 dp horizontal strip in portrait, directly between the viewfinder and look carousel (thumb zone). In landscape it is a 64 dp rail
+between the viewfinder and vertical look picker. In Mini it remains between the viewfinder and Mini bar, so mode never moves into a sheet. Selected text is amber on `raised`;
+unselected is `inkMuted` on `deck`. Each half has a ≥48 dp semantic target even when its visual plate is 36 dp. TalkBack labels are the localized mode names and radio-button
+state. Mode switching is disabled during Starting, Recording and Stopping.
+
+Photo mode lists only `kind:"photo"`; Video lists only `kind:"video"`. Switching restores the last look for that mode. Video look aspect is authoritative (Tape, Reel 8 and
+Silent 16 = 4:3; Mini DV = 16:9), so ratio/frame/date controls and photo multi-shot controls are hidden in Video. Selecting another video look is disabled during a recording
+because Mini DV would otherwise require a camera rebind. Lens switching is also disabled from Starting through Stopping.
+
+### 13.2 Record states
+
+| state | shutter | status below shutter | behavior |
+|---|---|---|---|
+| Idle / Saved / Error | red circular core inside the normal `ink` ring | `00:00` | tap starts; if needed, the microphone system dialog opens first |
+| Starting | disabled core/ring treatment | `00:00` | encoder, pending MediaStore row and optional audio are prepared |
+| Recording | 24 dp red rounded stop square | 6 dp red lamp + `REC` + `mm:ss` | tap stops; timer updates at 5 Hz; hard cap at `03:00` |
+| Stopping | disabled busy treatment | red lamp + final time | EGL detaches, codecs drain, muxer commits or deletes pending row |
+
+The red lamp and stop-square shape duplicate the meaning of color. Shutter TalkBack text is “Start recording” / “Stop recording”; state changes use the polite announcer,
+including “Video saved”. Background/onStop and a camera error perform the same clean stop as the user. If microphone permission is denied, a short snackbar says recording
+continues without audio. If 1080p configuration fails, a short snackbar announces the 720p fallback. Storage-full and generic video failures use error snackbars.
+
+### 13.3 Gallery
+
+Video grid cells use their MediaStore thumbnail with a centered white geometric play triangle. The same viewer pager hosts platform `VideoView` with `MediaController`, looping
+the active page. Video actions are Share and Delete; Re-develop is absent. Share MIME is `video/mp4`. Deletion uses the existing MediaStore confirmation flow and never touches
+the negatives store for a video.
+
+### 13.4 Video strings (EN / FR)
+
+| key | English | French |
+|---|---|---|
+| `mode_photo` / `mode_video` | Photo / Video | Photo / Vidéo |
+| `look_vhs` / `look_super8` | Tape / Reel 8 | Cassette / Bobine 8 |
+| `look_dv` / `look_bw16` | Mini DV / Silent 16 | Mini DV / Muet 16 |
+| `cd_record_start` / `cd_record_stop` | Start recording / Stop recording | Démarrer l'enregistrement / Arrêter l'enregistrement |
+| `a11y_video_saved` | Video saved | Vidéo enregistrée |
+| `msg_recording_without_audio` | Microphone denied. Recording without audio. | Microphone refusé. Enregistrement sans son. |
+| `msg_video_720p_fallback` | 1080p unavailable. Recording at 720p. | 1080p indisponible. Enregistrement en 720p. |
+| `err_video_recording` | Couldn't save the video. | Impossible d'enregistrer la vidéo. |
+| `err_video_storage_full` | Storage full. Video not saved. | Stockage plein. Vidéo non enregistrée. |
+| `cd_video_play` | Play video | Lire la vidéo |

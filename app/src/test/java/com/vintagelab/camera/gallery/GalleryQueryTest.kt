@@ -9,14 +9,17 @@ import org.junit.Test
 class GalleryQueryTest {
     @Test fun selectionArgsAreFolderPrefixAndOwner() {
         assertArrayEquals(
-            arrayOf("Pictures/VintageLab/%", "com.vintagelab.camera"),
-            GalleryQuery.selectionArgs("Pictures/VintageLab", "com.vintagelab.camera"),
+            arrayOf("Pictures/VintageLab/%", "Movies/VintageLab/%", "com.vintagelab.camera"),
+            GalleryQuery.selectionArgs("Pictures/VintageLab", "Movies/VintageLab", "com.vintagelab.camera"),
         )
-        assertArrayEquals(arrayOf("Pictures/VintageLab/%", "p"), GalleryQuery.selectionArgs("Pictures/VintageLab/", "p"))
+        assertArrayEquals(
+            arrayOf("Pictures/VintageLab/%", "Movies/VintageLab/%", "p"),
+            GalleryQuery.selectionArgs("Pictures/VintageLab/", "Movies/VintageLab/", "p"),
+        )
     }
 
     @Test fun selectionHasOnePlaceholderPerArgAndExcludesPending() {
-        assertEquals(2, GalleryQuery.SELECTION.count { it == '?' })
+        assertEquals(3, GalleryQuery.SELECTION.count { it == '?' })
         assertTrue(GalleryQuery.SELECTION.contains("relative_path LIKE ?"))
         assertTrue(GalleryQuery.SELECTION.contains("owner_package_name=?"))
         assertTrue(GalleryQuery.SELECTION.contains("is_pending=0"))
@@ -42,7 +45,7 @@ class GalleryQueryTest {
         }
     }
 
-    @Test fun projectionHasIdAndDateTaken() {
-        assertArrayEquals(arrayOf("_id", "datetaken"), GalleryQuery.PROJECTION)
+    @Test fun projectionHasIdDateTypeAndMime() {
+        assertArrayEquals(arrayOf("_id", "datetaken", "media_type", "mime_type"), GalleryQuery.PROJECTION)
     }
 }

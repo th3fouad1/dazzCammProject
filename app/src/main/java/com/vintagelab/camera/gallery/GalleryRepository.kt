@@ -7,8 +7,15 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import com.vintagelab.camera.storage.StorageConfig
+import com.vintagelab.camera.video.VideoRecorder
 
-data class GalleryItem(val id: Long, val uri: Uri, val dateTaken: Long)
+data class GalleryItem(
+    val id: Long,
+    val uri: Uri,
+    val dateTaken: Long,
+    val isVideo: Boolean = false,
+    val mimeType: String = "image/jpeg",
+)
 
 /**
  * MediaStore reads and deletes for the in-app gallery (SPEC 6.8). Only rows this install owns in
@@ -18,10 +25,14 @@ class GalleryRepository(
     private val resolver: ContentResolver,
     private val ownerPackage: String,
 ) {
-    private val collection: Uri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-    private val args = GalleryQuery.selectionArgs(StorageConfig.RELATIVE_PATH, ownerPackage)
+    private val collection: Uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    private val args = GalleryQuery.selectionArgs(StorageConfig.RELATIVE_PATH, VideoRecorder.VIDEO_RELATIVE_PATH, ownerPackage)
 
-    fun uriFor(id: Long): Uri = Uri.withAppendedPath(collection, id.toString())
+    fun uriFor(id: Long, video: Boolean = false): Uri = Uri.withAppendedPath(
+        if (video) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+        id.toString(),
+    )
 
     /** One page of our photos, newest first; an empty list means the end (or a failed query). */
     fun page(offset: Int, limit: Int = GalleryQuery.PAGE_SIZE): List<GalleryItem> = try {
@@ -42,7 +53,13 @@ class GalleryRepository(
             buildList {
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
-                    add(GalleryItem(id, uriFor(id), c.getLong(1)))
+                    val video = c.getInt(2) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                    add(
+                        GalleryItem(
+                            id, uriFor(id, video), c.getLong(1), video,
+                            c.getString(3) ?: if (video) "video/mp4" else "image/jpeg",
+                        ),
+                    )
                 }
             }
         } ?: emptyList()
@@ -51,9 +68,10 @@ class GalleryRepository(
         emptyList()
     }
 
-    /** Ids of every photo we own (for negatives housekeeping). Null when the query failed. */
+    /** Ids of every photo we own (videos never participate in negatives housekeeping). */
     fun allIds(): Set<Long>? = try {
-        resolver.query(collection, arrayOf(MediaStore.Images.Media._ID), GalleryQuery.SELECTION, args, null)?.use { c ->
+        val imageOnly = GalleryQuery.SELECTION + " AND ${MediaStore.Files.FileColumns.MEDIA_TYPE}=${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}"
+        resolver.query(collection, arrayOf(MediaStore.Files.FileColumns._ID), imageOnly, args, null)?.use { c ->
             buildSet { while (c.moveToNext()) add(c.getLong(0)) }
         }
     } catch (e: Exception) {

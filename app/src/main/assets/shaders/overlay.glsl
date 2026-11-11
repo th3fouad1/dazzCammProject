@@ -23,6 +23,9 @@ uniform float uGhostMirror; // 1 = flip x (front-camera preview)
 uniform vec4 uStampColor;
 uniform float uStampOn;
 uniform vec4 uStampDigits[2]; // 8 glyph codes: 0-9 digits, 10 blank, 11 apostrophe
+uniform float uVideoStyle;
+uniform vec4 uVideoFxB;       // gate weave, flicker, rounded border, light leaks
+uniform vec4 uVideoStamp[5];  // 20 codes: `MMM dd yyyy HH:mm`
 
 const int SEG[10] = int[10](63, 6, 91, 79, 102, 109, 125, 7, 127, 111);
 
@@ -43,8 +46,40 @@ float sdGlyph(vec2 q, int code, float w) {
     float t = 0.13;
     q.x -= q.y * 0.12; // slight italic
     if (code == 11) return sdBox(q, vec2(0.12, 0.82), vec2(0.05, 0.14)) - 0.02;
-    if (code < 0 || code > 9) return 1e3;
-    int m = SEG[code];
+    if (code == 12) {
+        float a = sdBox(q, vec2(w * 0.5, 0.30), vec2(0.055));
+        float b = sdBox(q, vec2(w * 0.5, 0.70), vec2(0.055));
+        return min(a, b);
+    }
+    if (code < 0 || code > 38) return 1e3;
+    int m = 0;
+    if (code <= 9) m = SEG[code];
+    else if (code == 13) m = 119; // A
+    else if (code == 14) m = 124; // b
+    else if (code == 15) m = 57;  // C
+    else if (code == 16) m = 94;  // d
+    else if (code == 17) m = 121; // E
+    else if (code == 18) m = 113; // F
+    else if (code == 19) m = 61;  // G
+    else if (code == 20) m = 118; // H
+    else if (code == 21) m = 6;   // I
+    else if (code == 22) m = 30;  // J
+    else if (code == 23) m = 118; // K approximation
+    else if (code == 24) m = 56;  // L
+    else if (code == 25) m = 55;  // M approximation
+    else if (code == 26) m = 84;  // n
+    else if (code == 27) m = 63;  // O
+    else if (code == 28) m = 115; // P
+    else if (code == 29) m = 103; // q
+    else if (code == 30) m = 80;  // r
+    else if (code == 31) m = 109; // S
+    else if (code == 32) m = 120; // t
+    else if (code == 33) m = 62;  // U
+    else if (code == 34) m = 62;  // V
+    else if (code == 35) m = 62;  // W approximation
+    else if (code == 36) m = 118; // X approximation
+    else if (code == 37) m = 110; // Y
+    else if (code == 38) m = 91;  // Z
     float d = 1e3;
     float hx = w * 0.5 - t * 0.6;
     float hy = 0.25 - t * 0.6;
@@ -56,6 +91,27 @@ float sdGlyph(vec2 q, int code, float w) {
     if ((m & 32) != 0) d = min(d, sdBox(q, vec2(t * 0.5, 0.75), vec2(t * 0.5, hy)));
     if ((m & 64) != 0) d = min(d, sdBox(q, vec2(w * 0.5, 0.5), vec2(hx, t * 0.5)));
     return d - 0.015;
+}
+
+int videoGlyphCode(int i) {
+    vec4 v = uVideoStamp[i / 4];
+    int k = i - (i / 4) * 4;
+    float g = k == 0 ? v.x : (k == 1 ? v.y : (k == 2 ? v.z : v.w));
+    return int(floor(g + 0.5));
+}
+
+vec3 drawVideoStamp(vec3 c, vec2 ip, vec2 rs) {
+    float H = 0.028 * uShortSide;
+    float W = 0.56;
+    vec2 origin = vec2(0.035 * uShortSide, rs.y - 0.045 * uShortSide);
+    vec2 q = vec2(ip.x - origin.x, origin.y - ip.y) / H;
+    float d = 1e3;
+    for (int i = 0; i < 17; i++) {
+        d = min(d, sdGlyph(q - vec2(float(i) * 0.70, 0.0), videoGlyphCode(i), W));
+    }
+    float core = 1.0 - smoothstep(-0.75, 0.75, d * H);
+    vec3 col = uVideoStyle > 2.5 && uVideoStyle < 3.5 ? vec3(1.0, 0.48, 0.08) : vec3(0.94);
+    return mix(c, col, core * 0.92);
 }
 
 vec3 drawStamp(vec3 c, vec2 ip, vec2 rs) {
@@ -176,9 +232,18 @@ void main() {
             c *= 1.0 - sh;
             c = mix(c, uMountColor, smoothstep(-0.75, 0.75, dw));
         }
+        if (uVideoStyle > 1.5 && uVideoStyle < 2.5 && uVideoFxB.z > 0.0) {
+            vec2 p = ip - 0.5 * rs;
+            float d = sdRoundBox(p, 0.5 * rs - vec2(0.012 * uShortSide), 0.035 * uShortSide);
+            float border = smoothstep(-1.0, 2.0, d);
+            c = mix(c, vec3(0.015), border * uVideoFxB.z);
+        }
     } else {
         c = frameColor(px, ip, rs);
     }
     if (uStampOn > 0.5) c = drawStamp(c, ip, rs);
+    if ((uVideoStyle > 0.5 && uVideoStyle < 1.5) || (uVideoStyle > 2.5 && uVideoStyle < 3.5)) {
+        c = drawVideoStamp(c, ip, rs);
+    }
     FRAG_COLOR = vec4(c, 1.0);
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,6 +86,7 @@ import com.vintagelab.camera.ui.theme.VlMotion
 import com.vintagelab.camera.ui.theme.VlRadius
 import com.vintagelab.camera.ui.theme.VlType
 import com.vintagelab.camera.ui.theme.labelValue
+import com.vintagelab.camera.video.RecordingPhase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -252,26 +254,26 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNav)
     Box {
         ControlButton(stringResource(R.string.cd_more), null, moreLamp(s), icon = VlIcons.More) { expanded = true }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
+            if (s.mode == CameraMode.Photo) DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off)) },
                 enabled = MultiShotRules.canChangeMode(s.multi),
                 onClick = { onIntent(CameraIntent.ToggleDoubleExposure); expanded = false },
             )
-            DropdownMenuItem(
+            if (s.mode == CameraMode.Photo) DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off)) },
                 enabled = MultiShotRules.canChangeMode(s.multi),
                 onClick = { onIntent(CameraIntent.ToggleHalfFrame); expanded = false },
             )
-            DropdownMenuItem(
+            if (s.mode == CameraMode.Photo) DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_grid), if (s.multiMode == MultiMode.Grid4) on else off)) },
                 enabled = MultiShotRules.canChangeMode(s.multi),
                 onClick = { onIntent(CameraIntent.ToggleGrid); expanded = false },
             )
-            DropdownMenuItem(
+            if (s.mode == CameraMode.Photo) DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_prism, stringResource(prismName(s.prism)))) },
                 onClick = { onIntent(CameraIntent.CyclePrism) },
             )
-            DropdownMenuItem(
+            if (s.mode == CameraMode.Photo) DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel)))) },
                 onClick = { onIntent(CameraIntent.CycleFlashGel) },
             )
@@ -316,11 +318,13 @@ fun CaptureModeButtons(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
 @Composable
 fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNav, vertical: Boolean, modifier: Modifier = Modifier) {
     val items: @Composable () -> Unit = {
-        FlashButton(s, onIntent)
-        TimerButton(s, onIntent)
-        RatioButton(s, onIntent)
-        FrameButton(s, onIntent)
-        DateStampButton(s, onIntent)
+        if (s.mode == CameraMode.Photo) {
+            FlashButton(s, onIntent)
+            TimerButton(s, onIntent)
+            RatioButton(s, onIntent)
+            FrameButton(s, onIntent)
+            DateStampButton(s, onIntent)
+        }
     }
     if (vertical) {
         Column(modifier.background(VlColors.Deck).padding(vertical = 8.dp), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -345,7 +349,10 @@ fun ShutterButton(s: CameraUiState, size: Dp, onIntent: (CameraIntent) -> Unit) 
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     LaunchedEffect(pressed) { if (pressed) haptics.performHapticFeedback(HapticFeedbackType.VirtualKey) }
-    val busy = s.captureState == CaptureState.Processing
+    val video = s.mode == CameraMode.Video
+    val recording = s.recording.phase == RecordingPhase.Recording
+    val videoBusy = s.recording.phase == RecordingPhase.Starting || s.recording.phase == RecordingPhase.Stopping
+    val busy = if (video) videoBusy else s.captureState == CaptureState.Processing
     val countdown = s.captureState is CaptureState.Countdown
     val available = s.camera == CameraStatus.Ready
     val disc by animateFloatAsState(if (pressed) 0.87f else 1f, VlMotion.instant(reduced), label = "disc")
@@ -353,6 +360,8 @@ fun ShutterButton(s: CameraUiState, size: Dp, onIntent: (CameraIntent) -> Unit) 
     val angle by sweep.animateFloat(0f, 360f, infiniteRepeatable(tween(VlMotion.DevelopLoop, easing = LinearEasing)), label = "angle")
     val cd = stringResource(
         when {
+            video && recording -> R.string.cd_record_stop
+            video -> R.string.cd_record_start
             countdown -> R.string.cd_shutter_cancel
             busy -> R.string.cd_shutter_busy
             else -> R.string.cd_shutter
@@ -384,7 +393,10 @@ fun ShutterButton(s: CameraUiState, size: Dp, onIntent: (CameraIntent) -> Unit) 
                 topLeft = Offset(c.x - ringR, c.y - ringR), size = GSize(ringR * 2, ringR * 2), style = Stroke(3.dp.toPx() * k),
             )
         }
-        if (countdown) {
+        if (video && recording) {
+            val h = 12.dp.toPx() * k
+            drawRoundRect(VlColors.Signal, Offset(c.x - h, c.y - h), GSize(h * 2, h * 2), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx() * k))
+        } else if (countdown) {
             val h = 12.dp.toPx() * k
             drawRoundRect(VlColors.Ink, Offset(c.x - h, c.y - h), GSize(h * 2, h * 2), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx() * k))
         } else {
@@ -394,7 +406,7 @@ fun ShutterButton(s: CameraUiState, size: Dp, onIntent: (CameraIntent) -> Unit) 
                 pressed -> VlColors.ShutterCorePressed
                 else -> VlColors.ShutterCore
             }
-            drawCircle(discColor, 31.dp.toPx() * k * disc, c)
+            drawCircle(if (video) VlColors.Signal else discColor, 31.dp.toPx() * k * disc, c)
         }
     }
 }
@@ -468,7 +480,7 @@ fun Deck(s: CameraUiState, onIntent: (CameraIntent) -> Unit, shutter: Dp, vertic
     val shutterCol: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             ShutterButton(s, shutter, onIntent)
-            DevelopingLabelSimple(s)
+            if (s.mode == CameraMode.Video) RecordingLabel(s) else DevelopingLabelSimple(s)
         }
     }
     if (vertical) {
@@ -479,6 +491,47 @@ fun Deck(s: CameraUiState, onIntent: (CameraIntent) -> Unit, shutter: Dp, vertic
         Row(modifier.background(VlColors.Deck), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             thumb(); shutterCol(); LensSwitchButton(s, onIntent)
         }
+    }
+}
+
+@Composable
+private fun RecordingLabel(s: CameraUiState) {
+    val elapsed = s.recording.elapsedMs.coerceAtLeast(0L) / 1000L
+    val text = "%02d:%02d".format(elapsed / 60L, elapsed % 60L)
+    val active = s.recording.phase == RecordingPhase.Recording || s.recording.phase == RecordingPhase.Stopping
+    Row(Modifier.height(18.dp).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (active) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(VlColors.Signal))
+            Text(" ${stringResource(R.string.record_rec)} ", style = VlType.labelEngraved, color = VlColors.Signal)
+        }
+        Text(text, style = VlType.labelEngraved, color = VlColors.InkMuted)
+    }
+}
+
+/** Thumb-reach Photo/Video segmented switch, kept adjacent to the look picker. */
+@Composable
+fun ModeSwitch(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolean, modifier: Modifier = Modifier) {
+    val enabled = s.recording.phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping)
+    val photo = stringResource(R.string.mode_photo)
+    val video = stringResource(R.string.mode_video)
+    val item: @Composable (CameraMode, String) -> Unit = { mode, label ->
+        val selected = s.mode == mode
+        Box(
+            Modifier
+                .then(if (vertical) Modifier.fillMaxWidth().height(48.dp) else Modifier.height(48.dp).padding(horizontal = 10.dp))
+                .clip(RoundedCornerShape(VlRadius.Chip))
+                .background(if (selected) VlColors.Raised else Color.Transparent)
+                .selectable(selected = selected, enabled = enabled, role = Role.RadioButton) { onIntent(CameraIntent.SetMode(mode)) }
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label.uppercase(), style = VlType.labelEngraved, color = if (selected) VlColors.Amber else VlColors.InkMuted)
+        }
+    }
+    if (vertical) Column(modifier.background(VlColors.Deck), verticalArrangement = Arrangement.Center) {
+        item(CameraMode.Photo, photo); item(CameraMode.Video, video)
+    } else Row(modifier.background(VlColors.Deck), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        item(CameraMode.Photo, photo); item(CameraMode.Video, video)
     }
 }
 
@@ -530,11 +583,18 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
         ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = VlColors.Raised, modifier = Modifier.semantics { paneTitle = title }) {
             var pendingClose by remember { mutableStateOf(false) }
             LaunchedEffect(pendingClose) { if (pendingClose) { delay(300); sheet = false } }
-            LookPicker(s.looks, s.lookId, vertical = false, compact = false, onSelect = { onIntent(CameraIntent.SelectLook(it)); pendingClose = true }, modifier = Modifier.fillMaxWidth().height(96.dp))
+            LookPicker(
+                s.looks, s.lookId, vertical = false, compact = false,
+                enabled = s.recording.phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping),
+                onSelect = { onIntent(CameraIntent.SelectLook(it)); pendingClose = true },
+                modifier = Modifier.fillMaxWidth().height(96.dp),
+            )
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                FlashButton(s, onIntent); TimerButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
+                if (s.mode == CameraMode.Photo) {
+                    FlashButton(s, onIntent); TimerButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
+                }
             }
-            CaptureModeButtons(s, onIntent)
+            if (s.mode == CameraMode.Photo) CaptureModeButtons(s, onIntent)
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) }
                 TextButton(onClick = { sheet = false; nav.onLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }

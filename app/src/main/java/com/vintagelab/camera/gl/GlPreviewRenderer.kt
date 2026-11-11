@@ -10,6 +10,7 @@ import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
 import com.vintagelab.camera.BuildConfig
 import com.vintagelab.camera.capture.FrameGeometry
+import com.vintagelab.camera.capture.DateStamp
 import com.vintagelab.camera.perf.PerfLog
 import com.vintagelab.camera.capture.FrameLayout
 import com.vintagelab.camera.looks.IntRect
@@ -21,6 +22,8 @@ import com.vintagelab.camera.looks.UniformSet
 import com.vintagelab.camera.looks.Vec4
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
+import java.time.LocalDateTime
+import com.vintagelab.camera.video.VideoEncoderTarget
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -43,6 +46,9 @@ sealed interface PreviewEvent {
 
     /** A pass fell back to passthrough (release builds). */
     data object Passthrough : PreviewEvent
+
+    /** The MediaCodec EGL surface could not accept frames. */
+    data object VideoEncoderError : PreviewEvent
 }
 
 /** Callbacks are delivered on the main thread. */
@@ -130,6 +136,11 @@ class GlPreviewRenderer(
     private var cachedLook: PreviewLook? = null
     private var cachedUniforms: UniformSet? = null
     private var appliedPreset: Preset? = null
+    @Volatile private var encoderTarget: VideoEncoderTarget? = null
+    private var attachedEncoderTarget: VideoEncoderTarget? = null
+    private var encoderEgl: EncoderEglSurface? = null
+    private var lastEncodedNs = Long.MIN_VALUE
+    private var dropNextEncoderFrame = false
 
     private data class TapMapping(val layout: FrameLayout, val transform: SourceTransform, val bufW: Int, val bufH: Int)
 
@@ -164,6 +175,9 @@ class GlPreviewRenderer(
         appliedPreset = null
         ghostTex = 0
         ghostUploaded = null
+        if (encoderTarget != null) post(PreviewEvent.VideoEncoderError)
+        encoderEgl = null
+        attachedEncoderTarget = null
         if (g.oesUnavailable) post(PreviewEvent.GpuUnsupported)
         if (g.passthrough) post(PreviewEvent.Passthrough)
         if (hadContext) {
@@ -238,7 +252,12 @@ class GlPreviewRenderer(
             crop.left.toFloat() / bufW, crop.top.toFloat() / bufH,
             crop.width.toFloat() / bufW, crop.height.toFloat() / bufH,
         )
-        val u = UniformMapper.withGeometry(cachedUniforms!!, cropUv, layout).copy(grainTime = grainTime)
+        val dynamic = cachedUniforms!!.copy(
+            grainTime = grainTime,
+            time = grainTime,
+            frameIndex = (grainTime * 30f).toLong().toFloat(),
+        )
+        val u = UniformMapper.withGeometry(dynamic, cropUv, layout)
 
         val x = (viewW - layout.canvasW) / 2
         val y = (viewH - layout.canvasH) / 2
@@ -257,6 +276,7 @@ class GlPreviewRenderer(
             RenderTarget(0, x, y, layout.canvasW, layout.canvasH, flipY = false),
             extras = extras,
         )
+        renderEncoder(cam, texMatrix, transform, cropUv, dynamic, lk, g)
         lastGrainTime = grainTime
         tapMapping = TapMapping(layout, transform, bufW, bufH)
         if (cam.framesDrawn++ == 0) post(PreviewEvent.FirstFrame)
@@ -264,6 +284,98 @@ class GlPreviewRenderer(
             if (appliedPreset != null) post(PreviewEvent.LookApplied)
             appliedPreset = lk.preset
         }
+    }
+
+    private fun renderEncoder(
+        cam: CameraSurface,
+        texMatrix: FloatArray,
+        transform: SourceTransform,
+        cropUv: Vec4,
+        dynamic: UniformSet,
+        lk: PreviewLook,
+        g: RenderGraph,
+    ) {
+        val target = encoderTarget ?: run {
+            detachEncoderOnGl()
+            return
+        }
+        if (!target.isAlive()) return
+        if (target !== attachedEncoderTarget) {
+            detachEncoderOnGl()
+            try {
+                encoderEgl = EncoderEglSurface(target.surface)
+                attachedEncoderTarget = target
+                lastEncodedNs = Long.MIN_VALUE
+            } catch (t: Throwable) {
+                Log.e(TAG, "encoder EGL attach failed", t)
+                post(PreviewEvent.VideoEncoderError)
+                return
+            }
+        }
+        if (dropNextEncoderFrame) {
+            dropNextEncoderFrame = false
+            return
+        }
+        val sourceNs = cam.surfaceTexture.timestamp.takeIf { it > 0L } ?: System.nanoTime()
+        val ptsNs = target.timestamps.next(sourceNs)
+        if (lastEncodedNs != Long.MIN_VALUE && ptsNs - lastEncodedNs < 25_000_000L) return
+        val layout = FrameGeometry.fitLayout(lk.state.frame, transform.outWidth, transform.outHeight, target.width, target.height)
+        val u = UniformMapper.withGeometry(dynamic, cropUv, layout)
+        val started = System.nanoTime()
+        val ok = try {
+            encoderEgl?.present(ptsNs) {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+                GLES30.glViewport(0, 0, target.width, target.height)
+                GLES30.glClearColor(0f, 0f, 0f, 1f)
+                GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+                val x = (target.width - layout.canvasW) / 2
+                val y = (target.height - layout.canvasH) / 2
+                g.setLook(lk.preset)
+                g.render(
+                    RenderInput(cam.texture, oes = true, stMatrix = texMatrix, transform = transform),
+                    layout.imageW, layout.imageH, u,
+                    RenderTarget(0, x, y, layout.canvasW, layout.canvasH, flipY = false),
+                )
+            } == true
+        } catch (t: Throwable) {
+            Log.e(TAG, "encoder frame failed", t)
+            false
+        }
+        if (!ok) {
+            post(PreviewEvent.VideoEncoderError)
+            return
+        }
+        lastEncodedNs = ptsNs
+        // MediaCodec should normally accept swaps immediately. If it back-pressures once, skip the
+        // next encoder frame so the preview GL thread gets an entire camera interval to recover.
+        if (System.nanoTime() - started > 25_000_000L) dropNextEncoderFrame = true
+    }
+
+    fun startRecording(target: VideoEncoderTarget) {
+        encoderTarget = target
+        view.requestRender()
+    }
+
+    /** Detaches and destroys the encoder EGL surface on the GL thread before MediaCodec EOS. */
+    fun stopRecording(onDetached: () -> Unit) {
+        encoderTarget = null
+        val work = Runnable {
+            detachEncoderOnGl()
+            mainExecutor.execute(onDetached)
+        }
+        if (view.isAttachedToWindow) view.queueEvent(work) else {
+            attachedEncoderTarget = null
+            encoderEgl = null
+            mainExecutor.execute(onDetached)
+        }
+    }
+
+    private fun detachEncoderOnGl() {
+        runCatching { encoderEgl?.release() }
+        encoderEgl = null
+        attachedEncoderTarget = null
+        lastEncodedNs = Long.MIN_VALUE
+        dropNextEncoderFrame = false
     }
 
     private fun post(e: PreviewEvent) = mainExecutor.execute { listener.onPreviewEvent(e) }

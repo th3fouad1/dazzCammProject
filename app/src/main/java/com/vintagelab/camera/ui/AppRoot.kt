@@ -1,5 +1,6 @@
 package com.vintagelab.camera.ui
 
+import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -30,6 +31,7 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
     var screen by rememberSaveable { mutableStateOf(Screen.Camera) }
     var editorReturn by rememberSaveable { mutableStateOf(Screen.Camera) }
     var galleryFocus by remember { mutableStateOf<Uri?>(null) }
+    var handledAudioRequest by rememberSaveable { mutableStateOf(0L) }
     val owner = LocalLifecycleOwner.current
     onScreen(screen)
 
@@ -45,6 +47,16 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
             editorReturn = if (screen == Screen.Gallery) Screen.Gallery else Screen.Camera
             editor.openImport(uri)
             screen = Screen.Editor
+        }
+    }
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        vm.onIntent(CameraIntent.RecordAudioPermissionResult(granted))
+    }
+    LaunchedEffect(state.audioPermissionRequestSeq) {
+        val seq = state.audioPermissionRequestSeq
+        if (seq > handledAudioRequest) {
+            handledAudioRequest = seq
+            audioPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
     val launchPicker = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }

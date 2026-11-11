@@ -53,6 +53,7 @@ import com.vintagelab.camera.capture.MultiExposure
 import com.vintagelab.camera.capture.MultiMode
 import com.vintagelab.camera.gl.PreviewHost
 import com.vintagelab.camera.ui.theme.VlColors
+import com.vintagelab.camera.video.RecordingPhase
 import kotlinx.coroutines.launch
 
 /** Stateless camera screen (DESIGN §10.1). */
@@ -116,6 +117,17 @@ fun CameraScreen(
         if (state.multiExposure == MultiExposure.HasFirst) announce(res.getString(R.string.a11y_first_kept))
     }
     LaunchedEffect(state.renderMode) { if (state.renderMode == RenderMode.Passthrough) snackbar.showSnackbar(res.getString(R.string.err_looks_unavailable)) }
+    LaunchedEffect(state.audioDeniedNoticeSeq) {
+        if (state.audioDeniedNoticeSeq > 0) snackbar.showSnackbar(res.getString(R.string.msg_recording_without_audio))
+    }
+    LaunchedEffect(state.videoFallbackNoticeSeq) {
+        if (state.videoFallbackNoticeSeq > 0) snackbar.showSnackbar(res.getString(R.string.msg_video_720p_fallback))
+    }
+    LaunchedEffect(state.videoErrorSeq) {
+        if (state.videoErrorSeq > 0) snackbar.showSnackbar(
+            res.getString(if (state.videoStorageFull) R.string.err_video_storage_full else R.string.err_video_recording),
+        )
+    }
     // Announcer messages.
     val look = state.looks.firstOrNull { it.id == state.lookId }
     val lookLabel = lookName(look)
@@ -131,6 +143,12 @@ fun CameraScreen(
         }
     }
     LaunchedEffect(state.focus?.phase) { if (state.focus?.phase == FocusPhase.Locked) announce(res.getString(R.string.a11y_focus_locked)) }
+    LaunchedEffect(state.recording.phase) {
+        if (state.recording.phase == RecordingPhase.Saved) {
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            announce(res.getString(R.string.a11y_video_saved))
+        }
+    }
 
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // UI-side reactions to some intents (announcements / snackbars), then forward.
@@ -185,8 +203,9 @@ fun CameraLayout(
             Column(Modifier.fillMaxSize()) {
                 if (mode != LayoutMode.Mini) ControlBar(s, onIntent, nav, vertical = false, modifier = Modifier.fillMaxWidth().height(m.bar.dp).then(group(1f)))
                 slot(Modifier.weight(1f).fillMaxWidth())
+                ModeSwitch(s, onIntent, vertical = false, modifier = Modifier.fillMaxWidth().height(48.dp).then(group(4f)))
                 if (mode != LayoutMode.Mini) {
-                    LookPicker(s.looks, s.lookId, vertical = false, compact = mode == LayoutMode.Compact, onSelect = { onIntent(CameraIntent.SelectLook(it)) },
+                    LookPicker(s.looks, s.lookId, vertical = false, compact = mode == LayoutMode.Compact, enabled = s.recording.phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping), onSelect = { onIntent(CameraIntent.SelectLook(it)) },
                         modifier = Modifier.fillMaxWidth().height(m.carousel.dp).background(VlColors.Deck).then(group(5f)))
                     Deck(s, onIntent, m.shutterDp, vertical = false, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxWidth().height(m.deck.dp).then(group(6f)))
                 } else {
@@ -197,8 +216,9 @@ fun CameraLayout(
             Row(Modifier.fillMaxSize()) {
                 if (mode != LayoutMode.Mini) ControlBar(s, onIntent, nav, vertical = true, modifier = Modifier.fillMaxHeight().width(m.bar.dp).then(group(1f)))
                 slot(Modifier.weight(1f).fillMaxHeight())
+                ModeSwitch(s, onIntent, vertical = true, modifier = Modifier.fillMaxHeight().width(64.dp).then(group(4f)))
                 if (mode != LayoutMode.Mini) {
-                    LookPicker(s.looks, s.lookId, vertical = true, compact = mode == LayoutMode.Compact, onSelect = { onIntent(CameraIntent.SelectLook(it)) },
+                    LookPicker(s.looks, s.lookId, vertical = true, compact = mode == LayoutMode.Compact, enabled = s.recording.phase !in setOf(RecordingPhase.Starting, RecordingPhase.Recording, RecordingPhase.Stopping), onSelect = { onIntent(CameraIntent.SelectLook(it)) },
                         modifier = Modifier.fillMaxHeight().width(m.carousel.dp).background(VlColors.Deck).then(group(5f)))
                     Deck(s, onIntent, m.shutterDp, vertical = true, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxHeight().width(m.deck.dp).then(group(6f)))
                 } else {

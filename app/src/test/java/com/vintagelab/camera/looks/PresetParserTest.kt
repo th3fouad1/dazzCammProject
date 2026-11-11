@@ -18,11 +18,11 @@ class PresetParserTest {
     private fun parse(text: String, log: PresetLog = PresetLog.Silent) = PresetParser.parse(text, log)
 
     @Test
-    fun shippedFile_isValid_withTwelveLooks() {
+    fun shippedFile_isValid_withPhotoAndVideoLooks() {
         val log = Rec()
         val presets = TestAssets.presets(log)
         assertEquals((log.warns + log.errors).toString(), 0, log.warns.size + log.errors.size)
-        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "ccd2", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono", "pano"), presets.map { it.id })
+        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "ccd2", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono", "pano", "vhs", "super8", "dv", "bw16"), presets.map { it.id })
         for (p in presets) {
             val lut = p.lut
             if (lut != null) assertTrue("missing LUT $lut", TestAssets.file("luts/$lut.png").exists())
@@ -41,6 +41,22 @@ class PresetParserTest {
         for (id in listOf("slide", "premium", "toy120", "tlr", "square", "fine_mono")) {
             assertEquals("look_$id", presets.first { it.id == id }.displayNameRes)
         }
+    }
+
+    @Test
+    fun videoPresets_parseAndFilterByKind() {
+        val repository = PresetRepository(TestAssets.presets())
+        assertEquals(14, repository.presetsFor(PresetKind.PHOTO).size)
+        val video = repository.presetsFor(PresetKind.VIDEO)
+        assertEquals(listOf("vhs", "super8", "dv", "bw16"), video.map { it.id })
+        assertEquals(VideoStyle.VHS, video[0].video.style)
+        assertEquals(VideoAspect.R4_3, video[0].video.aspect)
+        assertEquals(VideoStyle.SUPER8, video[1].video.style)
+        assertEquals(0.03f, video[1].video.flicker)
+        assertEquals(VideoAspect.R16_9, video[2].video.aspect)
+        assertEquals(VideoStyle.BW16, video[3].video.style)
+        assertTrue(video[3].monochrome)
+        assertTrue(video[3].video.scratches > 0f)
     }
 
     @Test

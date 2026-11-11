@@ -22,6 +22,11 @@ data class LookState(
     val gel: FlashGel = FlashGel.NONE,
     /** Prism lens (user setting, not a look); OFF in the parity test. */
     val prism: PrismMode = PrismMode.OFF,
+    /** Seconds since this video preview/recording session started. */
+    val time: Float = 0f,
+    val frameIndex: Long = 0L,
+    /** 20 codes for `MMM dd yyyy HH:mm`. */
+    val videoStampCodes: List<Int> = List(DateStamp.VIDEO_SLOTS) { DateStamp.GLYPH_BLANK },
 )
 
 /**
@@ -54,6 +59,13 @@ data class UniformSet(
     val imageRect: Vec4 = Vec4(0f, 0f, 1f, 1f),        // uImageRect (canvas uv, y down)
     val gel: Vec4 = Vec4(1f, 1f, 1f, 0f),            // uGel (rgb tint, strength); strength 0 = no gel
     val prism: Vec2 = Vec2(0f, PrismMode.AMOUNT),     // uPrism (mode code, amount); mode 0 = off
+    val time: Float = 0f,                             // uTime
+    val frameIndex: Float = 0f,                       // uFrameIndex
+    val videoStyle: Float = 0f,                       // uVideoStyle
+    val videoFxA: Vec4 = Vec4(0f, 0f, 0f, 0f),        // bleed, noise, tracking, scanlines
+    val videoFxB: Vec4 = Vec4(0f, 0f, 0f, 0f),        // weave, flicker, border, light leaks
+    val videoScratches: Float = 0f,
+    val videoStampCodes: List<Float> = List(DateStamp.VIDEO_SLOTS) { DateStamp.GLYPH_BLANK.toFloat() },
 )
 
 /** Pure `Preset → UniformSet` mapping (SPEC §7.2). Frozen interface after Phase A. */
@@ -80,6 +92,7 @@ object UniformMapper {
             else -> Vec2(t, 1f)
         }
         val stamp = preset.dateStamp.color
+        val video = preset.video
         return UniformSet(
             lutStrength = 1f,
             grain = Vec3(preset.grain.amount, preset.grain.size, preset.grain.chroma),
@@ -102,6 +115,13 @@ object UniformMapper {
             stampOn = if (state.dateStampOn) 1f else 0f,
             stampDigits = state.stampCodes.map { it.toFloat() },
             prism = Vec2(state.prism.code.toFloat(), PrismMode.AMOUNT),
+            time = state.time,
+            frameIndex = state.frameIndex.toFloat(),
+            videoStyle = video.style.code,
+            videoFxA = Vec4(video.chromaBleed, video.lumaNoise, video.tracking, video.scanlines),
+            videoFxB = Vec4(video.gateWeave, video.flicker, video.roundedBorder, video.lightLeaks),
+            videoScratches = video.scratches,
+            videoStampCodes = state.videoStampCodes.map { it.toFloat() },
         ).withGel(state.gel)
     }
 

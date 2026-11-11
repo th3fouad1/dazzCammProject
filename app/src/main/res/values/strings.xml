@@ -16,6 +16,20 @@
     <string name="look_square">Square</string>
     <string name="look_fine_mono">Mono 100</string>
     <string name="look_pano">Wide 35</string>
+    <string name="look_vhs">Tape</string>
+    <string name="look_super8">Reel 8</string>
+    <string name="look_dv">Mini DV</string>
+    <string name="look_bw16">Silent 16</string>
+    <string name="mode_photo">Photo</string>
+    <string name="mode_video">Video</string>
+    <string name="cd_record_start">Start recording</string>
+    <string name="cd_record_stop">Stop recording</string>
+    <string name="record_rec" translatable="false">REC</string>
+    <string name="a11y_video_saved">Video saved</string>
+    <string name="msg_recording_without_audio">Microphone denied. Recording without audio.</string>
+    <string name="msg_video_720p_fallback">1080p unavailable. Recording at 720p.</string>
+    <string name="err_video_recording">Couldn\'t save the video.</string>
+    <string name="err_video_storage_full">Storage full. Video not saved.</string>
     <string name="cd_look_suffix">%1$s look</string>
     <string name="cd_viewfinder">Viewfinder, %1$s look</string>
     <string name="cd_look_chip">Look: %1$s. Show looks and controls</string>
@@ -87,8 +101,8 @@
     <string name="cd_lens_switch">Switch camera</string>
     <string name="state_lens_back">Back camera</string>
     <string name="state_lens_front">Front camera</string>
-    <string name="cd_thumb">Open last photo</string>
-    <string name="cd_thumb_empty">No photos yet</string>
+    <string name="cd_thumb">Open last photo or video</string>
+    <string name="cd_thumb_empty">No photos or videos yet</string>
     <string name="cd_zoom">Zoom %1$s times</string>
     <string name="label_zoom">%1$s×</string>
     <string name="a11y_action_focus_center">Focus center</string>
@@ -158,10 +172,12 @@
     <string name="err_no_gallery_app">No app can show your photos.</string>
     <string name="msg_photo_deleted">Photo deleted</string>
     <string name="gallery_title">Gallery</string>
-    <string name="gallery_empty_title">No photos here yet</string>
-    <string name="gallery_empty_body">Photos you take or develop in this app appear here. Photos from before a reinstall stay in your Photos app.</string>
+    <string name="gallery_empty_title">No photos or videos here yet</string>
+    <string name="gallery_empty_body">Photos and videos you make in this app appear here. Media from before a reinstall stays in your Photos app.</string>
     <string name="gallery_open_photos">Open in Photos</string>
     <string name="cd_photo_n">Photo %1$d</string>
+    <string name="cd_video_n">Video %1$d</string>
+    <string name="cd_video_play">Play video</string>
     <string name="viewer_position">%1$d of %2$d</string>
     <string name="viewer_share">Share</string>
     <string name="viewer_delete">Delete</string>

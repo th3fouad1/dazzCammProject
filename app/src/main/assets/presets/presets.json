@@ -1080,6 +1080,75 @@
         "enabledByDefault": false,
         "color": "#FF8A1F"
       }
+    },
+    {
+      "id": "vhs",
+      "kind": "video",
+      "displayNameRes": "look_vhs",
+      "lut": "kodak_gold_200",
+      "lutStrength": 0.55,
+      "exposure": -0.03,
+      "saturation": 0.78,
+      "temperature": 0.12,
+      "fade": 0.06,
+      "grain": { "amount": 0.3, "size": 0.0024, "chroma": 0.08 },
+      "vignette": { "amount": 0.15, "radius": 1.05, "softness": 0.75, "shape": "oval" },
+      "video": {
+        "style": "vhs", "aspect": "4:3", "chromaBleed": 0.85, "lumaNoise": 0.55,
+        "tracking": 0.75, "scanlines": 0.5, "gateWeave": 0.05, "flicker": 0.008,
+        "roundedBorder": 0, "lightLeaks": 0, "scratches": 0
+      }
+    },
+    {
+      "id": "super8",
+      "kind": "video",
+      "displayNameRes": "look_super8",
+      "lut": "kodak_gold_200",
+      "lutStrength": 1.0,
+      "exposure": 0.08,
+      "saturation": 1.05,
+      "temperature": 0.16,
+      "highlightTint": { "color": "#FFD29A", "amount": 0.16 },
+      "grain": { "amount": 0.78, "size": 0.0028, "chroma": 0.05 },
+      "vignette": { "amount": 0.35, "radius": 0.9, "softness": 0.62, "shape": "oval" },
+      "video": {
+        "style": "super8", "aspect": "4:3", "chromaBleed": 0.05, "lumaNoise": 0.28,
+        "tracking": 0, "scanlines": 0, "gateWeave": 0.85, "flicker": 0.03,
+        "roundedBorder": 1, "lightLeaks": 0.8, "scratches": 0.12
+      }
+    },
+    {
+      "id": "dv",
+      "kind": "video",
+      "displayNameRes": "look_dv",
+      "lut": "kodak_ultra_max_400",
+      "lutStrength": 0.38,
+      "exposure": 0.02,
+      "saturation": 0.92,
+      "temperature": -0.12,
+      "sharpen": 0.72,
+      "grain": { "amount": 0.08, "size": 0.0012, "chroma": 0.35 },
+      "video": {
+        "style": "dv", "aspect": "16:9", "chromaBleed": 0.12, "lumaNoise": 0.08,
+        "tracking": 0, "scanlines": 0.18, "gateWeave": 0, "flicker": 0,
+        "roundedBorder": 0, "lightLeaks": 0, "scratches": 0
+      }
+    },
+    {
+      "id": "bw16",
+      "kind": "video",
+      "displayNameRes": "look_bw16",
+      "lut": "kodak_tri_x_400",
+      "lutStrength": 1.0,
+      "exposure": -0.02,
+      "monochrome": true,
+      "grain": { "amount": 0.9, "size": 0.0032, "chroma": 0 },
+      "vignette": { "amount": 0.58, "radius": 0.82, "softness": 0.6, "shape": "oval" },
+      "video": {
+        "style": "bw16", "aspect": "4:3", "chromaBleed": 0, "lumaNoise": 0.34,
+        "tracking": 0, "scanlines": 0, "gateWeave": 0.48, "flicker": 0.03,
+        "roundedBorder": 0.25, "lightLeaks": 0, "scratches": 0.9
+      }
     }
   ]
 }

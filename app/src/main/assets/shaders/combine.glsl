@@ -24,13 +24,21 @@ uniform float uSeed;
 uniform sampler2D uBlend;  // stored first exposure (bitmap rows: top at t = 0)
 uniform float uBlendOn;
 uniform vec4 uGel;         // (rgb tint, strength)
+uniform float uVideoStyle;
+uniform vec4 uVideoFxA;
+uniform vec4 uVideoFxB;
+uniform float uVideoScratches;
+uniform float uTime;
+uniform float uFrameIndex;
 
 void main() {
     vec2 img = vec2(vUv.x, 1.0 - vUv.y);
     vec2 aspect = uOutSize / uShortSide;
     vec2 p = (img - 0.5) * aspect;
 
-    vec3 c = fxLookColor(uLookLut, texture(uInput, vUv).rgb, uLutStrength);
+    vec3 source = texture(uInput, vUv).rgb;
+    source = fxVideoArtifacts(uInput, vUv, source, aspect, uVideoStyle, uVideoFxA, uVideoFxB, uVideoScratches, uTime, uFrameIndex, uSeed);
+    vec3 c = fxLookColor(uLookLut, source, uLutStrength);
     vec3 b0 = fxLookColor(uLookLut, texture(uPyr0, vUv).rgb, uLutStrength);
     vec3 b1 = fxLookColor(uLookLut, texture(uPyr1, vUv).rgb, uLutStrength);
     vec3 b2 = fxLookColor(uLookLut, texture(uPyr2, vUv).rgb, uLutStrength);

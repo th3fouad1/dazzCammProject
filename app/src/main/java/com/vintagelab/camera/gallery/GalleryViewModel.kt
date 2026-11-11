@@ -57,9 +57,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Removes [id] from the list and drops its negative (SPEC 6.9: deleted with its photo). */
-    fun onDeleted(id: Long) {
-        _state.update { s -> s.copy(items = s.items.filterNot { it.id == id }) }
-        viewModelScope.launch(Dispatchers.IO) { app.negatives.delete(id) }
+    fun onDeleted(item: GalleryItem) {
+        _state.update { s -> s.copy(items = s.items.filterNot { it.id == item.id }) }
+        if (!item.isVideo) viewModelScope.launch(Dispatchers.IO) { app.negatives.delete(item.id) }
     }
 
     fun hasNegative(id: Long): Boolean = app.negatives.has(id)

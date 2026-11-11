@@ -11,6 +11,7 @@ import com.vintagelab.camera.looks.UniformSet
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.LinkedHashMap
 import kotlin.math.roundToInt
 
 /** Source of Pass 0: the camera OES texture (preview) or a decoded bitmap texture (capture). */
@@ -56,9 +57,17 @@ class RenderGraph(
     private var quad: FloatBuffer? = null
     private var lutTexture = 0
     private var lutPreset: Preset? = null
-    private var fboA: Fbo? = null
-    private var fboB: Fbo? = null
-    private val pyramid = arrayOfNulls<Fbo>(3)
+    private data class TargetSet(val a: Fbo, val b: Fbo, val pyramid: Array<Fbo>) {
+        fun release() {
+            a.release()
+            b.release()
+            pyramid.forEach(Fbo::release)
+        }
+    }
+
+    // Preview and encoder generally use different image sizes. Keep both allocations alive so a
+    // recorded frame never churns five FBOs while switching EGL window surfaces.
+    private val targetSets = LinkedHashMap<Long, TargetSet>(2, 0.75f, true)
 
     /** True when Pass 0 OES had to use the ESSL 1.00 fallback. */
     var oesFallback = false
@@ -146,9 +155,10 @@ class RenderGraph(
         onInputConsumed: (() -> Unit)? = null,
         extras: RenderExtras? = null,
     ) {
-        ensureTargets(imageW, imageH)
-        val a = fboA!!
-        val b = fboB!!
+        val targets = targetsFor(imageW, imageH)
+        val a = targets.a
+        val b = targets.b
+        val pyramid = targets.pyramid
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
 
@@ -185,8 +195,7 @@ class RenderGraph(
         // Pass 2 — pyramid
         val pp = programs.getValue(ShaderSources.Pass.PYRAMID)
         var src = b
-        for (lvl in pyramid) {
-            val dst = lvl!!
+        for (dst in pyramid) {
             dst.bind()
             pp.use()
             bindTex(0, GLES30.GL_TEXTURE_2D, src.texture)
@@ -202,9 +211,9 @@ class RenderGraph(
         a.bind()
         p3.use()
         bindTex(0, GLES30.GL_TEXTURE_2D, b.texture)
-        bindTex(1, GLES30.GL_TEXTURE_2D, pyramid[0]!!.texture)
-        bindTex(2, GLES30.GL_TEXTURE_2D, pyramid[1]!!.texture)
-        bindTex(3, GLES30.GL_TEXTURE_2D, pyramid[2]!!.texture)
+        bindTex(1, GLES30.GL_TEXTURE_2D, pyramid[0].texture)
+        bindTex(2, GLES30.GL_TEXTURE_2D, pyramid[1].texture)
+        bindTex(3, GLES30.GL_TEXTURE_2D, pyramid[2].texture)
         bindTex(4, GLES30.GL_TEXTURE_3D, lutTexture)
         val blend = extras?.blendTex ?: 0
         bindTex(5, GLES30.GL_TEXTURE_2D, blend)
@@ -249,6 +258,13 @@ class RenderGraph(
         p.set1f("uSharpen", u.sharpen)
         p.set2f("uDistortion", u.distortion.x, u.distortion.y)
         p.set2f("uPrism", u.prism.x, u.prism.y)
+        p.set1f("uTime", u.time)
+        p.set1f("uFrameIndex", u.frameIndex)
+        p.set1f("uVideoStyle", u.videoStyle)
+        p.set4f("uVideoFxA", u.videoFxA.x, u.videoFxA.y, u.videoFxA.z, u.videoFxA.w)
+        p.set4f("uVideoFxB", u.videoFxB.x, u.videoFxB.y, u.videoFxB.z, u.videoFxB.w)
+        p.set1f("uVideoScratches", u.videoScratches)
+        p.set4fv("uVideoStamp", FloatArray(20) { u.videoStampCodes.getOrElse(it) { 10f } }, 5)
         p.set4f("uLeak", u.leak.x, u.leak.y, u.leak.z, u.leak.w)
         p.set2f("uLeakPos", u.leakPos.x, u.leakPos.y)
         p.set1f("uDust", u.dust)
@@ -279,26 +295,30 @@ class RenderGraph(
         p.set1f("uFlipY", 0f)
     }
 
-    private fun ensureTargets(w: Int, h: Int) {
-        val a = fboA
-        if (a != null && a.width == w && a.height == h) return
-        releaseTargets()
-        fboA = Fbo(w, h)
-        fboB = Fbo(w, h)
+    private fun targetsFor(w: Int, h: Int): TargetSet {
+        val key = (w.toLong() shl 32) or h.toLong().and(0xFFFF_FFFFL)
+        targetSets[key]?.let { return it }
         val short = minOf(w, h).toFloat()
-        PYRAMID_SHORT_SIDES.forEachIndexed { i, s ->
+        val pyramid = Array(PYRAMID_SHORT_SIDES.size) { i ->
+            val s = PYRAMID_SHORT_SIDES[i]
             val k = s / short
-            pyramid[i] = Fbo(maxOf(1, (w * k).roundToInt()), maxOf(1, (h * k).roundToInt()))
+            Fbo(maxOf(1, (w * k).roundToInt()), maxOf(1, (h * k).roundToInt()))
         }
+        val targets = TargetSet(Fbo(w, h), Fbo(w, h), pyramid)
+        targetSets[key] = targets
+        if (targetSets.size > MAX_TARGET_SETS) {
+            val oldest = targetSets.entries.iterator()
+            oldest.next().also { it.value.release(); oldest.remove() }
+        }
+        return targets
     }
 
     /** Frees the full-size intermediate targets (capture context, after each shot). */
     fun trimMemory() = releaseTargets()
 
     private fun releaseTargets() {
-        fboA?.release(); fboA = null
-        fboB?.release(); fboB = null
-        for (i in pyramid.indices) { pyramid[i]?.release(); pyramid[i] = null }
+        targetSets.values.forEach(TargetSet::release)
+        targetSets.clear()
     }
 
     private fun bindTex(unit: Int, target: Int, tex: Int) {
@@ -326,6 +346,7 @@ class RenderGraph(
 
     companion object {
         private const val TAG = "RenderGraph"
+        private const val MAX_TARGET_SETS = 2
         val PYRAMID_SHORT_SIDES = floatArrayOf(512f, 256f, 128f)
 
         /** Long-side cap for any render target (SPEC §6.5). Needs a current context. */

@@ -42,6 +42,10 @@ class PresetRepository(val presets: List<Preset>) {
 
     fun get(id: String): Preset = presets.firstOrNull { it.id == id } ?: default
 
+    fun presetsFor(kind: PresetKind): List<Preset> = presets.filter { it.kind == kind }
+
+    fun defaultFor(kind: PresetKind): Preset = presetsFor(kind).firstOrNull() ?: default
+
     companion object {
         const val ASSET_PATH = "presets/presets.json"
 
@@ -115,6 +119,9 @@ private class PresetReader(val id: String, val obj: JsonObject, val log: PresetL
         val d = Preset(id)
         return Preset(
             id = id,
+            kind = string(obj, "kind")?.let {
+                PresetKind.fromId(it) ?: run { log.warn("$id: unknown kind '$it'"); null }
+            } ?: d.kind,
             displayNameRes = string(obj, "displayNameRes") ?: d.displayNameRes,
             lut = string(obj, "lut"),
             lutStrength = num(obj, "lutStrength", d.lutStrength, 0f, 1f),
@@ -194,6 +201,26 @@ private class PresetReader(val id: String, val obj: JsonObject, val log: PresetL
                     color = color(it, "color", Rgb.STAMP_ORANGE, "dateStamp."),
                 )
             } ?: DateStampSpec(),
+            video = (obj["video"] as? JsonObject)?.let {
+                val v = VideoEffectsSpec()
+                VideoEffectsSpec(
+                    style = string(it, "style")?.let { name ->
+                        VideoStyle.fromId(name) ?: run { log.warn("$id: unknown video.style '$name'"); null }
+                    } ?: v.style,
+                    aspect = string(it, "aspect")?.let { name ->
+                        VideoAspect.fromId(name) ?: run { log.warn("$id: unknown video.aspect '$name'"); null }
+                    } ?: v.aspect,
+                    chromaBleed = num(it, "chromaBleed", v.chromaBleed, 0f, 1f, "video."),
+                    lumaNoise = num(it, "lumaNoise", v.lumaNoise, 0f, 1f, "video."),
+                    tracking = num(it, "tracking", v.tracking, 0f, 1f, "video."),
+                    scanlines = num(it, "scanlines", v.scanlines, 0f, 1f, "video."),
+                    gateWeave = num(it, "gateWeave", v.gateWeave, 0f, 1f, "video."),
+                    flicker = num(it, "flicker", v.flicker, 0f, 0.03f, "video."),
+                    roundedBorder = num(it, "roundedBorder", v.roundedBorder, 0f, 1f, "video."),
+                    lightLeaks = num(it, "lightLeaks", v.lightLeaks, 0f, 1f, "video."),
+                    scratches = num(it, "scratches", v.scratches, 0f, 1f, "video."),
+                )
+            } ?: VideoEffectsSpec(),
         )
     }
 

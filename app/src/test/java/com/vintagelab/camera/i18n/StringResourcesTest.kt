@@ -81,4 +81,19 @@ class StringResourcesTest {
             assertTrue("fr $k differs from en", fr.getValue(k).text != en.getValue(k).text || k == "gallery_title")
         }
     }
+
+    @Test
+    fun videoStringsExistInEnglishAndFrench() {
+        val en = load("values")
+        val fr = load("values-fr")
+        val keys = listOf(
+            "look_vhs", "look_super8", "look_dv", "look_bw16", "mode_photo", "mode_video",
+            "cd_record_start", "cd_record_stop", "a11y_video_saved", "msg_recording_without_audio",
+            "msg_video_720p_fallback", "err_video_recording", "err_video_storage_full", "cd_video_n", "cd_video_play",
+        )
+        for (key in keys) {
+            assertTrue("en $key", en[key]?.text?.isNotBlank() == true)
+            assertTrue("fr $key", fr[key]?.text?.isNotBlank() == true)
+        }
+    }
 }

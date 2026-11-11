@@ -91,6 +91,7 @@ fun LookPicker(
     selectedId: String,
     vertical: Boolean,
     compact: Boolean,
+    enabled: Boolean = true,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,7 +101,7 @@ fun LookPicker(
     val selectedIndex = looks.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
 
     LaunchedEffect(selectedIndex, looks.size) { if (looks.isNotEmpty()) state.animateScrollToItem(selectedIndex) }
-    SettleSelect(state, looks, touchExploration) { currentSelect(it) }
+    SettleSelect(state, looks, touchExploration) { if (enabled) currentSelect(it) }
 
     val cardMain: Dp = if (compact) 56.dp else if (vertical) 72.dp else LABEL_CARD_PORTRAIT_W.dp
     BoxWithConstraints(modifier) {
@@ -112,7 +113,7 @@ fun LookPicker(
             .semantics { collectionInfo = if (vertical) CollectionInfo(looks.size, 1) else CollectionInfo(1, looks.size) }
         val content: @Composable (Int, LookUi) -> Unit = { i, look ->
             LookCard(
-                look, look.id == selectedId, compact, vertical,
+                look, look.id == selectedId, compact, vertical, enabled,
                 Modifier.semantics {
                     collectionItemInfo = if (vertical) CollectionItemInfo(i, 1, 0, 1) else CollectionItemInfo(0, 1, i, 1)
                 },
@@ -153,14 +154,14 @@ private fun SettleSelect(state: LazyListState, looks: List<LookUi>, touchExplora
 
 /** Mono glyph advance ~0.6 em plus 0.12 em tracking, with a safety margin; shrinks to [MIN_LABEL_SP], never ellipsised. */
 internal const val LABEL_CARD_PORTRAIT_W = 80f
-internal const val LABEL_CARD_LANDSCAPE_W = 128f
+internal const val LABEL_CARD_LANDSCAPE_W = 132f
 internal const val MIN_LABEL_SP = 9f
 internal const val MAX_LABEL_SP = 11f
 internal fun labelFontSizeSp(chars: Int, availDp: Float): Float =
     (availDp / (chars.coerceAtLeast(1) * 0.76f)).coerceIn(MIN_LABEL_SP, MAX_LABEL_SP)
 
 @Composable
-private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscape: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscape: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val name = lookName(look)
     val shape = RoundedCornerShape(VlRadius.Card)
     val border = if (selected) 2.dp else 1.dp
@@ -170,7 +171,7 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
         .clip(shape)
         .background(VlColors.Raised)
         .border(border, borderColor, shape)
-        .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+        .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
         .semantics { contentDescription = cd }
     if (compact) {
         LookSwatch(look.id, base.size(56.dp).padding(4.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
