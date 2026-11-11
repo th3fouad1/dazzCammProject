@@ -320,13 +320,23 @@ private fun ViewerPage(item: GalleryItem) {
         val b = withContext(Dispatchers.IO) {
             runCatching {
                 ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, item.uri)) { d, info, _ ->
-                    val s = max(1, max(info.size.width, info.size.height) / 2048)
-                    if (s > 1) d.setTargetSampleSize(s)
+                    val long = max(info.size.width, info.size.height)
+                    if (long > 2048) {
+                        val k = 2048.0 / long
+                        d.setTargetSize(max(1, (info.size.width * k).toInt()), max(1, (info.size.height * k).toInt()))
+                    }
                 }
             }.getOrNull()
         }
         bmp = b
         failed = b == null
+    }
+    // Release the page bitmap as soon as the pager disposes this page.
+    androidx.compose.runtime.DisposableEffect(item.id) {
+        onDispose {
+            bmp?.recycle()
+            bmp = null
+        }
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val b = bmp

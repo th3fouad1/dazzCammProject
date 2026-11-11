@@ -59,8 +59,15 @@ object ImageImporter {
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
             // The long side does not change with the orientation, so the sample size is orientation-agnostic.
-            val sample = max(1, max(info.size.width, info.size.height) / cap)
-            if (sample > 1) decoder.setTargetSampleSize(sample)
+            val long = max(info.size.width, info.size.height)
+            if (long > cap) {
+                // Decode straight to the cap (never above it), not floor(long / cap) which can be ~2x the cap.
+                val scale = cap.toDouble() / long
+                decoder.setTargetSize(
+                    max(1, (info.size.width * scale).toInt()),
+                    max(1, (info.size.height * scale).toInt()),
+                )
+            }
         }
 
     /** Fallback when ImageDecoder cannot read the file: BitmapFactory plus our own EXIF orientation handling. */
@@ -69,7 +76,7 @@ object ImageImporter {
         (resolver.openInputStream(uri) ?: throw FileNotFoundException(uri.toString())).use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IOException("not an image")
         val opts = BitmapFactory.Options().apply {
-            inSampleSize = max(1, max(bounds.outWidth, bounds.outHeight) / cap)
+            inSampleSize = max(1, (max(bounds.outWidth, bounds.outHeight) + cap - 1) / cap)
             inPreferredConfig = Bitmap.Config.ARGB_8888
             inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
         }

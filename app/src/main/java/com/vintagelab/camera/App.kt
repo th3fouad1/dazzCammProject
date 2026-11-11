@@ -44,8 +44,8 @@ class App : Application() {
         super.onCreate()
         appScope.launch(Dispatchers.IO) {
             saver.cleanupPending()
-            // Negatives whose photo is gone (deleted in another app, reinstall) are dropped; only if the id query worked and found photos.
-            gallery.allIds()?.takeIf { it.isNotEmpty() }?.let { negatives.prune(it) }
+            // Negatives whose photo is gone (deleted in another app, reinstall) are dropped (only when the id query itself succeeded).
+            gallery.allIds()?.let { negatives.prune(it) } // empty set = all our photos are gone → drop every negative
         }
     }
 
