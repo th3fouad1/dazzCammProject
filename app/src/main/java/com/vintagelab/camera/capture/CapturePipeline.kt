@@ -15,6 +15,7 @@ import com.vintagelab.camera.looks.IntRect
 import com.vintagelab.camera.looks.LookState
 import com.vintagelab.camera.looks.Preset
 import com.vintagelab.camera.looks.SourceTransform
+import com.vintagelab.camera.perf.PerfLog
 import com.vintagelab.camera.storage.MediaStoreSaver
 import com.vintagelab.camera.storage.StorageConfig
 import kotlinx.coroutines.CancellationException
@@ -205,7 +206,7 @@ class CapturePipeline(
         val state = withGel(input, settings)
         return guarded { cap, maxTexture ->
             val out = develop(input, settings.preset, state, cap, maxTexture)
-            save(out, settings, exif)
+            save(out, settings, exif).also { PerfLog.shotSaved(settings.preset.id) }
         }
     }
 
@@ -293,6 +294,7 @@ class CapturePipeline(
         // The decoded input is recycled and the readback buffer dropped inside develop(); only
         // the output bitmap is alive while JPEG bytes stream into the MediaStore row.
         return withContext(Dispatchers.IO) {
+            val t0 = PerfLog.nowNs()
             try {
                 saver.save(
                     settings.time,
@@ -305,13 +307,15 @@ class CapturePipeline(
                 )
             } finally {
                 out.recycle()
+                PerfLog.shotEncode(t0)
             }
         }
     }
 
     private suspend fun decodeBitmap(input: CaptureInput, cap: Int, maxTexture: Int): Bitmap =
         try {
-            withContext(Dispatchers.Default) { decode(input.jpeg, cap, maxTexture) }
+            val t0 = PerfLog.nowNs()
+            withContext(Dispatchers.Default) { decode(input.jpeg, cap, maxTexture) }.also { PerfLog.shotDecode(t0) }
         } catch (e: IllegalStateException) {
             throw CaptureException(CaptureErrorKind.DevelopFailed, e)
         }

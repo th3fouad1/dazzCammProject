@@ -12,6 +12,7 @@ import com.vintagelab.camera.looks.Preset
 import com.vintagelab.camera.looks.SourceTransform
 import com.vintagelab.camera.looks.UniformMapper
 import com.vintagelab.camera.looks.Vec4
+import com.vintagelab.camera.perf.PerfLog
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -65,6 +66,7 @@ class OffscreenRenderer(
         val base = UniformMapper.map(preset, state)
         val u = UniformMapper.withGeometry(if (firstExposure) UniformMapper.firstExposure(base) else base, crop, layout)
 
+        val tUp = PerfLog.nowNs()
         var tex = Textures.fromBitmap(bitmap)
         bitmap.recycle()
         var blendTex = if (blend != null) Textures.fromBitmap(blend) else 0
@@ -78,6 +80,8 @@ class OffscreenRenderer(
                 onInputConsumed = { Textures.delete(tex); tex = 0 },
                 extras = RenderExtras(blendTex = blendTex),
             )
+            if (PerfLog.enabled) GLES30.glFinish() // debug only: attribute GPU time to render, not readback
+            val tRead = PerfLog.nowNs()
             val bytes = layout.canvasW * layout.canvasH * 4
             // Not retained across shots: the caller compresses right after, and the readback
             // buffer must be unreachable by then (SPEC §6.5 memory plan, ≤ 2 full-size buffers).
@@ -92,6 +96,7 @@ class OffscreenRenderer(
             val out = Bitmap.createBitmap(layout.canvasW, layout.canvasH, Bitmap.Config.ARGB_8888)
             out.copyPixelsFromBuffer(buf)
             out.setHasAlpha(false)
+            if (PerfLog.enabled) PerfLog.shotRender((tRead - tUp) / 1e6, (PerfLog.nowNs() - tRead) / 1e6)
             out
         } finally {
             Textures.delete(tex)

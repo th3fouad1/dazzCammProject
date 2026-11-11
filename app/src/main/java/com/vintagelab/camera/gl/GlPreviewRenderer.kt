@@ -8,7 +8,9 @@ import android.util.Size
 import android.view.Surface
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
+import com.vintagelab.camera.BuildConfig
 import com.vintagelab.camera.capture.FrameGeometry
+import com.vintagelab.camera.perf.PerfLog
 import com.vintagelab.camera.capture.FrameLayout
 import com.vintagelab.camera.looks.IntRect
 import com.vintagelab.camera.looks.LookState
@@ -157,6 +159,7 @@ class GlPreviewRenderer(
         active = null
         val g = RenderGraph(readAsset, luts, strict).also { it.init(RenderGraph.hasOesEssl3()) }
         graph = g
+        perf = if (BuildConfig.DEBUG) PerfLog.PreviewStats { appliedLabel } else null
         cachedLook = null
         appliedPreset = null
         ghostTex = 0
@@ -174,8 +177,20 @@ class GlPreviewRenderer(
         viewH = maxOf(1, height)
     }
 
+    private var perf: PerfLog.PreviewStats? = null
+    private var appliedLabel = "?"
+
     override fun onDrawFrame(gl: GL10?) {
         pending.getAndSet(null)?.let { attach(it) }
+        perf?.begin()
+        try {
+            drawFrame()
+        } finally {
+            perf?.end()
+        }
+    }
+
+    private fun drawFrame() {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, viewW, viewH)
         GLES30.glClearColor(0f, 0f, 0f, 1f)
@@ -234,6 +249,7 @@ class GlPreviewRenderer(
             ghostUploaded = gb
         }
         val extras = if (ghostTex != 0) RenderExtras(ghostTex = ghostTex, ghostAlpha = GHOST_ALPHA, ghostMirror = info.isMirroring) else null
+        if (BuildConfig.DEBUG) appliedLabel = lk.preset.id
         g.setLook(lk.preset)
         g.render(
             RenderInput(cam.texture, oes = true, stMatrix = texMatrix, transform = transform),

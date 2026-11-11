@@ -535,3 +535,36 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
 - Bug found: swiping on the viewfinder changes look only once per session; carousel taps work. → Phase B fix.
 - Note: `temperature` has a weak effect relative to the film LUT; consider widening its range in the baker.
 
+
+## Appendix D — Performance pass (B.5) (2026-11-11, OnePlus 11 / SD 8 Gen 2, API 35, debug build)
+- Instrumentation (debug only, `BuildConfig.DEBUG`, tag `VLPerf`, `perf/PerfLog.kt`): preview line every 60 frames
+  (CPU `onDrawFrame` p50/p95, GPU-sync time p50/p95, frame interval p50/p95/max, fps, frames >50 ms) and one `SHOT` line per
+  capture (capture→ImageProxy, decode, upload+render, readback, compress+write, total from `takePicture` call). Read with `adb logcat -s VLPerf`.
+- **GPU time is a proxy, not `EXT_disjoint_timer_query`:** the Android SDK has no Java binding for that extension (needs JNI/NDK, not
+  in this project). Every 4th frame ends with `glFinish` and reports begin→GPU-idle (CPU submit + GPU execution); it is an upper bound
+  of true GPU time. Debug builds also `glFinish` before capture readback so upload+render and readback are attributed correctly.
+- Method: 60 s per look at the camera's 30 fps stream (4:3, 1080×2412 screen, indoor), `logcat` streamed to file (the ring buffer
+  drops lines otherwise); 10 shutter taps 5 s apart per look; "fps" = 1000 / median frame interval.
+
+| Metric | Budget | Measured | Pass |
+|---|---|---|---|
+| Preview Pocket (disposable: soft focus+bloom+glow), 60 s | ≥ 30 fps, 95 % of frames | 31.3 fps, 0 of ~1800 frames >50 ms, interval p95 ≈ 41 ms (camera cadence jitter), max 46.9 ms; CPU p95 ≤ 14.9 ms, GPU-sync p50 12.6 / p95 ≤ 15 ms | pass |
+| Preview Digi (ccd: bloom+sharpen) | ≥ 30 fps | 31.3 fps, 0 frames >50 ms, max 48.2 ms; CPU p95 ≤ 12.4, GPU-sync p50 10.2 / p95 ≤ 13.0 ms | pass |
+| Preview Bubble (fisheye) | ≥ 30 fps | 31.4 fps, 0 frames >50 ms, max 48.4 ms; CPU p95 ≤ 14.6, GPU-sync p50 12.4 / p95 ≤ 15.7 ms | pass |
+| Preview Pocket re-measured after ~14 min of camera use | ≥ 30 fps | 31.3 fps, 0 frames >50 ms, GPU-sync p50 12.9 / p95 ≤ 15.1 ms | pass |
+| Preview during capture render (Pocket, 10 shots) | ≥ 15 fps | worst frame 241.7 ms in the window containing a shot (one stall); 21 of ~3300 frames >50 ms, all within shot windows | pass |
+| Shutter-to-saved median of 10, Golden (classic35) | ≤ 2.5 s | 1.14 s (max 1.27 s) | pass |
+| Shutter-to-saved median of 10, Pocket (disposable) | ≤ 2.5 s | 1.11 s (max 1.24 s) | pass |
+| Stage: capture→ImageProxy (Golden / Pocket) | ≤ 600 ms | 625 / 605 ms | marginal fail (+4 % / +1 %) |
+| Stage: decode | ≤ 300 ms | 98 / 98 ms | pass |
+| Stage: upload+render | ≤ 400 ms | 92 / 97 ms | pass |
+| Stage: readback | ≤ 150 ms | 72 / 77 ms | pass |
+| Stage: compose | ≤ 150 ms | n/a (normal shots have no CPU compose; composite modes not measured) | n/a |
+| Stage: compress+write | ≤ 700 ms | 255 / 229 ms | pass |
+| Thermal after ~5 min and ~14 min of camera use | note | `ThermalService` status 2 (moderate) at ~11 min and ~15 min (not sampled earlier); battery 37.7 °C, skin 27.9–42.7 °C, GPU zones 45–54 °C; no fps loss between the first and the 14-min Pocket run | note |
+
+- Changes made: instrumentation only. No render-graph, shader or capture-path change, so parity is untouched.
+- Open: the capture stage is camera/ISP time (CameraX `CAPTURE_MODE_MINIMIZE_LATENCY` already set; the pipeline also runs an AE-precapture task) and
+  is outside the app's control; the total has 1.3 s of headroom. Decide whether to relax that sub-budget to 650 ms or test `ImageCapture` with
+  AE precapture skipped. True `EXT_disjoint_timer_query` timing would need a small JNI shim.
+- Observed, not fixed: swiping on the viewfinder still changes the look at most once per session (Appendix C bug); carousel swipes/taps work.

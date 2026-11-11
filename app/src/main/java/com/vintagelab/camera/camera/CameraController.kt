@@ -242,6 +242,7 @@ class CameraController(private val context: Context) {
      */
     suspend fun takePicture(): CaptureInput {
         val ic = imageCapture ?: throw IllegalStateException("camera not bound")
+        com.vintagelab.camera.perf.PerfLog.shotTap()
         return suspendCancellableCoroutine { cont ->
             ic.takePicture(
                 captureExecutor,
@@ -251,6 +252,7 @@ class CameraController(private val context: Context) {
                     }
 
                     override fun onCaptureSuccess(image: ImageProxy) {
+                        com.vintagelab.camera.perf.PerfLog.shotCaptured()
                         val result = try {
                             val buf = image.planes[0].buffer
                             val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
