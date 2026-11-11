@@ -2,4 +2,53 @@
 <resources>
     <!-- Temporary display label (SPEC §2.4): must be replaced before the first Play upload. -->
     <string name="app_name">Dazz Cam</string>
+
+    <!-- Look display names: our own names (looked up by presets.json displayNameRes). -->
+    <string name="look_classic35">Classic 35</string>
+    <string name="look_disposable">Throwaway</string>
+    <string name="look_instant">Instant</string>
+    <string name="look_ccd">Digi CCD</string>
+    <string name="look_bw400">Mono 400</string>
+    <string name="look_fisheye">Fisheye</string>
+
+    <!-- Controls -->
+    <string name="flash_off">Flash off</string>
+    <string name="flash_on">Flash on</string>
+    <string name="flash_auto">Flash auto</string>
+    <string name="ratio_4_3" translatable="false">4:3</string>
+    <string name="ratio_1_1" translatable="false">1:1</string>
+    <string name="ratio_16_9" translatable="false">16:9</string>
+    <string name="timer_off">Timer off</string>
+    <string name="timer_3">Timer 3s</string>
+    <string name="timer_10">Timer 10s</string>
+    <string name="frame_none">No frame</string>
+    <string name="frame_instant">Instant frame</string>
+    <string name="frame_strip">Film strip</string>
+    <string name="date_on">Date on</string>
+    <string name="date_off">Date off</string>
+    <string name="shuffle">Shuffle</string>
+    <string name="switch_lens">Switch camera</string>
+    <string name="shutter">Take photo</string>
+    <string name="shutter_cancel">Cancel timer</string>
+    <string name="developing">developing…</string>
+    <string name="saved">Saved</string>
+    <string name="last_shot">Open last photo</string>
+    <string name="licenses">Licenses</string>
+    <string name="no_viewer">No app can open this photo</string>
+
+    <!-- Errors -->
+    <string name="error_capture">Could not save the photo: %1$s</string>
+    <string name="error_camera">Camera unavailable: %1$s</string>
+
+    <!-- Permission -->
+    <string name="permission_title">Camera access needed</string>
+    <string name="permission_rationale">This app shows its film looks live in the viewfinder, so it needs the camera. Photos are saved only to your gallery; nothing leaves your phone.</string>
+    <string name="permission_grant">Allow camera</string>
+    <string name="permission_denied_forever">Camera access is turned off for this app. You can turn it on in Settings.</string>
+    <string name="permission_open_settings">Open Settings</string>
+
+    <!-- Licenses -->
+    <string name="licenses_title">Open-source licenses</string>
+    <string name="licenses_t3mujinpack">t3mujinpack film emulation LUTs (MIT)</string>
+    <string name="back">Back</string>
 </resources>

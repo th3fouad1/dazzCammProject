@@ -1,0 +1,31 @@
+// Film grain: continuous gradient noise evaluated in normalized coordinates (never a per-pixel
+// hash), so its scale is a fixed fraction of the short side at any resolution.
+vec2 fxGrad(vec2 cell, float salt) {
+    float a = fxHash(cell, salt) * 6.2831853;
+    return vec2(cos(a), sin(a));
+}
+
+float fxGradientNoise(vec2 x, float salt) {
+    vec2 i = floor(x);
+    vec2 f = fract(x);
+    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    float a = dot(fxGrad(i, salt), f);
+    float b = dot(fxGrad(i + vec2(1.0, 0.0), salt), f - vec2(1.0, 0.0));
+    float c = dot(fxGrad(i + vec2(0.0, 1.0), salt), f - vec2(0.0, 1.0));
+    float d = dot(fxGrad(i + vec2(1.0, 1.0), salt), f - vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 1.4;
+}
+
+vec3 fxGrain(vec3 c, vec2 p, vec3 grain, float time, float seed) {
+    if (grain.x <= 0.0) return c;
+    // New grain field every 1/24 s in preview; capture reuses the last presented time.
+    float frame = floor(time * 24.0);
+    vec2 off = vec2(fxHash(vec2(frame, 1.0), seed), fxHash(vec2(frame, 2.0), seed)) * 256.0;
+    vec2 q = p / grain.y + off;
+    float n = fxGradientNoise(q, 0.17) * 0.8 + fxGradientNoise(q * 2.03, 0.29) * 0.35;
+    vec3 nc = vec3(fxGradientNoise(q, 0.31), fxGradientNoise(q, 0.43), fxGradientNoise(q, 0.59));
+    vec3 nn = mix(vec3(n), nc, grain.z);
+    float l = fxLuma(c);
+    float w = 0.45 + 0.55 * (1.0 - abs(2.0 * l - 1.0));
+    return c + nn * grain.x * 0.2 * w;
+}

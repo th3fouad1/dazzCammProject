@@ -4,4 +4,6 @@
     <issue id="GradleDependency" severity="ignore" />
     <issue id="NewerVersionAvailable" severity="ignore" />
     <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <!-- targetSdk 36 is pinned by SPEC §9. -->
+    <issue id="OldTargetApi" severity="ignore" />
 </lint>

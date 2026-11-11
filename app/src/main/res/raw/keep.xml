@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Look names are resolved by key from presets.json (displayNameRes), not via R references. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@string/look_*" />

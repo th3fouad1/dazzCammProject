@@ -26,6 +26,22 @@ object FrameGeometry {
     const val STAMP_CAP_HEIGHT = 0.035f
 
     /**
+     * Largest layout (never upscaling the [srcW]×[srcH] image) whose canvas fits [maxW]×[maxH].
+     * Preview: bounds = view size. Capture: bounds = long-side cap in both dimensions.
+     */
+    fun fitLayout(frame: FrameId, srcW: Int, srcH: Int, maxW: Int, maxH: Int): FrameLayout {
+        val full = layout(frame, srcW, srcH)
+        var s = minOf(1f, maxW.toFloat() / full.canvasW, maxH.toFloat() / full.canvasH)
+        while (true) {
+            val w = maxOf(1, (srcW * s).toInt())
+            val h = maxOf(1, (srcH * s).toInt())
+            val l = layout(frame, w, h)
+            if ((l.canvasW <= maxW && l.canvasH <= maxH) || w == 1 || h == 1) return l
+            s *= 0.995f
+        }
+    }
+
+    /**
      * Canvas layout for an image of [imageW]×[imageH] pixels.
      * Borders are rounded to whole pixels; the image area is never resampled.
      */
