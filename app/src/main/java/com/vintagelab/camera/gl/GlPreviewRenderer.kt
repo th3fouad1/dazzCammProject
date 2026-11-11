@@ -175,9 +175,12 @@ class GlPreviewRenderer(
         appliedPreset = null
         ghostTex = 0
         ghostUploaded = null
-        if (encoderTarget != null) post(PreviewEvent.VideoEncoderError)
-        encoderEgl = null
-        attachedEncoderTarget = null
+        // The encoder EGLSurface belongs to the dead context: destroy it here (GL thread) and fail the
+        // recording so MediaCodec is only released after EGL is detached (stopRecording -> finalize).
+        val hadEncoder = encoderTarget != null
+        encoderTarget = null
+        detachEncoderOnGl()
+        if (hadEncoder) post(PreviewEvent.VideoEncoderError)
         if (g.oesUnavailable) post(PreviewEvent.GpuUnsupported)
         if (g.passthrough) post(PreviewEvent.Passthrough)
         if (hadContext) {
@@ -318,6 +321,7 @@ class GlPreviewRenderer(
         }
         val sourceNs = cam.surfaceTexture.timestamp.takeIf { it > 0L } ?: System.nanoTime()
         val ptsNs = target.timestamps.next(sourceNs)
+        if (ptsNs == com.vintagelab.camera.video.PresentationTimestamp.DROP) return
         if (lastEncodedNs != Long.MIN_VALUE && ptsNs - lastEncodedNs < 25_000_000L) return
         val layout = FrameGeometry.fitLayout(lk.state.frame, transform.outWidth, transform.outHeight, target.width, target.height)
         val u = UniformMapper.withGeometry(dynamic, cropUv, layout)

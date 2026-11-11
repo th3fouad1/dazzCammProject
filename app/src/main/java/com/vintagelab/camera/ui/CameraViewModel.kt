@@ -53,6 +53,7 @@ import com.vintagelab.camera.video.ActiveVideoRecording
 import com.vintagelab.camera.video.RecordingEvent
 import com.vintagelab.camera.video.RecordingPhase
 import com.vintagelab.camera.video.RecordingStateMachine
+import com.vintagelab.camera.video.RecordingTeardown
 import com.vintagelab.camera.video.StopReason
 import com.vintagelab.camera.video.VideoLimits
 import kotlinx.coroutines.CancellationException
@@ -96,8 +97,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private var boundKey: Any? = null
     private var countdownJob: Job? = null
     private var videoTickerJob: Job? = null
-    private var activeVideo: ActiveVideoRecording? = null
-    private var finishingVideo: ActiveVideoRecording? = null
+    @Volatile private var activeVideo: ActiveVideoRecording? = null
+    @Volatile private var teardown: RecordingTeardown? = null
+    @Volatile private var reportVideoError = false
     private var audioPermissionAsked = false
     private var photoLookId = "classic35"
     private var videoLookId = "vhs"
@@ -445,7 +447,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val preset = repo.get(s.lookId)
         if (preset.kind != PresetKind.VIDEO) return
         _state.update { it.copy(recording = RecordingStateMachine.reduce(it.recording, RecordingEvent.Start), videoStorageFull = false) }
-        viewModelScope.launch {
+        // App scope: a start that completes after onCleared must still be finalized, not leaked.
+        app.appScope.launch(Dispatchers.Main.immediate) {
             val result = withContext(Dispatchers.IO) { app.videoRecorder.start(preset.video.aspect, s.imagePortrait, withAudio) }
             result.onFailure { t ->
                 Log.e(TAG, "video start failed", t)
@@ -459,10 +462,16 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }.onSuccess { started ->
                 val recording = started.recording
                 activeVideo = recording
+                reportVideoError = false
+                val td = RecordingTeardown(
+                    detachEgl = { done -> renderer?.stopRecording(done) ?: done() },
+                    finalize = { finishVideo(recording) },
+                )
+                teardown = td
                 if (started.used720pFallback) _state.update { it.copy(videoFallbackNoticeSeq = it.videoFallbackNoticeSeq + 1) }
                 if (withAudio && !recording.hasAudio) _state.update { it.copy(audioDeniedNoticeSeq = it.audioDeniedNoticeSeq + 1) }
                 if (_state.value.recording.phase == RecordingPhase.Stopping) {
-                    finishVideo(recording)
+                    td.onDetached() // nothing attached to the GL thread yet
                     return@onSuccess
                 }
                 renderer?.startRecording(recording.target) ?: run {
@@ -500,19 +509,18 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         }
         videoTickerJob?.cancel()
         videoTickerJob = null
-        val recording = activeVideo ?: return
-        val finish = { finishVideo(recording, reportError) }
-        renderer?.stopRecording(finish) ?: finish()
+        if (reportError) reportVideoError = true
+        activeVideo?.endAudioCapture()
+        teardown?.request()
     }
 
-    private fun finishVideo(recording: ActiveVideoRecording, reportError: Boolean = false) {
-        if (activeVideo !== recording) return
-        if (finishingVideo === recording) return
-        finishingVideo = recording
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { recording.stop() }
+    /** Runs once per recording (via [RecordingTeardown]) in the app scope so onCleared cannot cancel it. */
+    private fun finishVideo(recording: ActiveVideoRecording) {
+        val reportError = reportVideoError
+        app.appScope.launch(Dispatchers.IO) {
+            val result = recording.stop()
             activeVideo = null
-            finishingVideo = null
+            teardown = null
             result.onSuccess { uri ->
                 _state.update {
                     it.copy(
@@ -919,7 +927,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     override fun onCleared() {
         countdownJob?.cancel()
         videoTickerJob?.cancel()
+        val td = teardown
         stopVideo(StopReason.Background)
+        if (td != null) app.appScope.launch { // safety net if the GL thread never runs the detach callback
+            delay(2_000)
+            td.onDetached()
+        }
         jobs.close() // queued jobs still finish in appScope
         previewHost.onRendererReady = null
         previewHost.onContextLost = null

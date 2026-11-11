@@ -45,20 +45,21 @@ class VideoRecorder(
     private val ownPackage: String,
 ) {
     fun start(aspect: VideoAspect, portrait: Boolean, withAudio: Boolean): Result<VideoStartResult> = runCatching {
-        val video = createVideoEncoder(aspect, portrait)
-        var audio: AudioPipe? = null
-        if (withAudio) {
-            audio = runCatching { createAudioPipe() }.onFailure { Log.w(TAG, "audio unavailable; recording silent", it) }.getOrNull()
-        }
-        val pending = createPending(LocalDateTime.now())
+        val scope = CleanupScope()
         try {
+            val video = scope.add<VideoPipe>({ it.release() }) { createVideoEncoder(aspect, portrait) }
+            var audio: AudioPipe? = null
+            if (withAudio) {
+                audio = runCatching { scope.add<AudioPipe>({ it.release() }) { createAudioPipe() } }
+                    .onFailure { Log.w(TAG, "audio unavailable; recording silent", it) }.getOrNull()
+            }
+            val pending = scope.add<Pending>({ abortPending(it) }) { createPending(LocalDateTime.now()) }
             val active = ActiveVideoRecording(resolver, pending, video, audio)
             active.start()
+            scope.commit()
             VideoStartResult(active, video.fallback)
         } catch (t: Throwable) {
-            runCatching { audio?.release() }
-            runCatching { video.release() }
-            abortPending(pending)
+            scope.releaseAll()
             throw t
         }
     }
@@ -174,9 +175,10 @@ class VideoRecorder(
             )
             .setBufferSizeInBytes(buffer)
             .build()
-        check(record.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord initialization failed" }
-        val codec = MediaCodec.createEncoderByType(MIME_AAC)
+        var codec: MediaCodec? = null
         try {
+            check(record.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord initialization failed" }
+            codec = MediaCodec.createEncoderByType(MIME_AAC)
             val format = MediaFormat.createAudioFormat(MIME_AAC, VideoLimits.AUDIO_SAMPLE_RATE, 1).apply {
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
                 setInteger(MediaFormat.KEY_BIT_RATE, VideoLimits.AUDIO_BIT_RATE)
@@ -185,8 +187,8 @@ class VideoRecorder(
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             return AudioPipe(codec, record, buffer)
         } catch (t: Throwable) {
-            record.release()
-            codec.release()
+            runCatching { record.release() }
+            runCatching { codec?.release() }
             throw t
         }
     }
@@ -215,7 +217,9 @@ class VideoRecorder(
         private lateinit var drainThread: Thread
         private var audioThread: Thread? = null
 
-        val target = VideoEncoderTarget(video.surface, video.width, video.height, PresentationTimestamp()) { running.get() && failure.get() == null }
+        /** Shared monotonic recording epoch (CLOCK_MONOTONIC, same base as SurfaceTexture timestamps). */
+        private val epochNs: Long = System.nanoTime()
+        val target = VideoEncoderTarget(video.surface, video.width, video.height, PresentationTimestamp(epochNs)) { running.get() && failure.get() == null }
         val hasAudio: Boolean get() = audio != null
         val used720pFallback: Boolean get() = video.fallback
         fun failureOrNull(): Throwable? = failure.get()
@@ -226,6 +230,9 @@ class VideoRecorder(
             drainThread = Thread(::drain, "video-drain").apply { start() }
             if (audio != null) audioThread = Thread({ feedAudio(audio) }, "audio-record").apply { start() }
         }
+
+        /** Stops feeding audio at the stop request so it does not outlast the last video frame. */
+        fun endAudioCapture() { audioRunning.set(false) }
 
         /** Called only after the GL thread detached the encoder Surface. */
         fun stop(): Result<Uri> {
@@ -243,24 +250,36 @@ class VideoRecorder(
         }
 
         private fun feedAudio(pipe: AudioPipe) {
-            val clock = AvClockAlignment(VideoLimits.AUDIO_SAMPLE_RATE)
+            val clock = AudioPtsMapper(epochNs, VideoLimits.AUDIO_SAMPLE_RATE)
+            val ts = android.media.AudioTimestamp()
             var frames = 0L
+            var lastPtsUs = 0L
             try {
                 pipe.record.startRecording()
+                clock.anchorStart(System.nanoTime())
+                val pcm = ByteBuffer.allocateDirect(pipe.bufferSize)
                 while (audioRunning.get()) {
-                    val index = pipe.codec.dequeueInputBuffer(20_000)
-                    if (index < 0) continue
+                    pcm.clear()
+                    val count = pipe.record.read(pcm, pipe.bufferSize, AudioRecord.READ_BLOCKING)
+                    if (count <= 0) continue
+                    val hasTs = pipe.record.getTimestamp(ts, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
+                    val pts = if (hasTs) clock.ptsUs(frames, ts.framePosition, ts.nanoTime) else clock.ptsUs(frames)
+                    frames += count / 2L
+                    if (pts == AudioPtsMapper.DROP) continue // captured before the recording epoch
+                    var index = -1
+                    while (index < 0 && audioRunning.get()) index = pipe.codec.dequeueInputBuffer(20_000)
+                    if (index < 0) break
                     val input = pipe.codec.getInputBuffer(index) ?: continue
                     input.clear()
-                    val count = pipe.record.read(input, minOf(input.capacity(), pipe.bufferSize), AudioRecord.READ_BLOCKING)
-                    if (count <= 0) continue
-                    pipe.codec.queueInputBuffer(index, 0, count, clock.audioPtsUs(frames), 0)
-                    frames += count / 2L
+                    pcm.limit(minOf(count, input.capacity())).position(0)
+                    input.put(pcm)
+                    lastPtsUs = pts
+                    pipe.codec.queueInputBuffer(index, 0, input.position(), pts, 0)
                 }
             } catch (t: Throwable) {
                 if (running.get()) failure.compareAndSet(null, t)
             } finally {
-                queueAudioEos(pipe.codec, clock.audioPtsUs(frames))
+                queueAudioEos(pipe.codec, lastPtsUs)
             }
         }
 
