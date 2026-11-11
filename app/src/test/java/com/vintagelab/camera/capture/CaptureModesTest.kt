@@ -108,6 +108,47 @@ class CaptureModesTest {
         assertFalse(MultiShotRules.frameLocked(halfHas))
     }
 
+    private val inFlight = MultiShotRules.beginSecond(
+        MultiShotRules.onFirstStored(armed(MultiMode.Double), MultiMode.Double).state,
+    )
+
+    @Test
+    fun lookSelectionKeepsFrameWhileDoubleHasFirst() {
+        val has = MultiShotRules.onFirstStored(armed(MultiMode.Double), MultiMode.Double).state
+        assertEquals(FrameId.INSTANT_WHITE, MultiShotRules.enforceFrame(has, FrameId.INSTANT_WHITE, FrameId.FILM_120))
+        assertEquals(FrameId.INSTANT_WHITE, MultiShotRules.enforceFrame(inFlight, FrameId.INSTANT_WHITE, FrameId.NONE))
+        assertEquals(FrameId.FILM_120, MultiShotRules.enforceFrame(armed(MultiMode.Double), FrameId.NONE, FrameId.FILM_120))
+    }
+
+    @Test
+    fun lookSelectionNeverForcesRatioFrameWhileHalfArmed() {
+        val half = armed(MultiMode.Half)
+        for (f in listOf(FrameId.FILM_120, FrameId.INSTANT_SQUARE, FrameId.INSTANT_MINI)) {
+            assertEquals(FrameId.NONE, MultiShotRules.enforceFrame(half, FrameId.NONE, f))
+        }
+        assertEquals(FrameId.INSTANT_WHITE, MultiShotRules.enforceFrame(half, FrameId.NONE, FrameId.INSTANT_WHITE))
+    }
+
+    @Test
+    fun cancelAndToggleRejectedWhileSecondInFlight() {
+        assertEquals(MultiExposure.SecondInFlight, inFlight.phase)
+        assertFalse(MultiShotRules.canChangeMode(inFlight))
+        assertEquals(inFlight, MultiShotRules.cancel(inFlight).state)
+        assertFalse(MultiShotRules.cancel(inFlight).discardedFirst)
+        assertEquals(inFlight, MultiShotRules.toggle(inFlight, MultiMode.Half).state)
+        assertEquals(inFlight, MultiShotRules.toggle(inFlight, MultiMode.Double).state)
+        assertTrue(MultiShotRules.frameLocked(inFlight))
+        assertTrue(MultiShotRules.ratioLocked(inFlight))
+    }
+
+    @Test
+    fun secondInFlightResolvesAsAUnit() {
+        assertEquals(MultiExposure.Waiting, MultiShotRules.onSecondSaved(inFlight).state.phase)
+        assertEquals(MultiExposure.Waiting, MultiShotRules.onSecondFailed(inFlight, firstDropped = true).state.phase)
+        assertEquals(MultiExposure.HasFirst, MultiShotRules.onSecondFailed(inFlight, firstDropped = false).state.phase)
+        assertEquals(MultiExposure.HasFirst, MultiShotRules.abortSecond(inFlight).phase)
+    }
+
     @Test
     fun halfFrameFrameCycleSkipsForcedRatioFrames() {
         var f = FrameId.NONE

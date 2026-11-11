@@ -1,5 +1,6 @@
 package com.vintagelab.camera.capture
 
+import com.vintagelab.camera.looks.FrameId
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -7,7 +8,8 @@ import kotlin.math.roundToInt
 enum class MultiMode { None, Double, Half }
 
 /** SPEC 7.4: progress of the armed mode. Off only when the mode is [MultiMode.None]. */
-enum class MultiExposure { Off, Waiting, HasFirst }
+/** [SecondInFlight]: shot 2 accepted (shutter pressed) and not yet saved; the pair completes or fails as a unit. */
+enum class MultiExposure { Off, Waiting, HasFirst, SecondInFlight }
 
 /** What the next shutter press produces. */
 enum class ShotKind { Normal, First, Second }
@@ -22,6 +24,7 @@ data class MultiShotStep(val state: MultiShotState, val discardedFirst: Boolean 
 object MultiShotRules {
     /** Toggling the active mode disarms it; toggling another mode arms that one. Any stored first is discarded. */
     fun toggle(s: MultiShotState, mode: MultiMode): MultiShotStep {
+        if (s.phase == MultiExposure.SecondInFlight) return MultiShotStep(s)
         val lost = s.phase == MultiExposure.HasFirst
         val next = if (mode == MultiMode.None || s.mode == mode) MultiShotState() else MultiShotState(mode, MultiExposure.Waiting)
         return MultiShotStep(next, lost)
@@ -30,7 +33,31 @@ object MultiShotRules {
     fun nextShot(s: MultiShotState): ShotKind = when (s.phase) {
         MultiExposure.Off -> ShotKind.Normal
         MultiExposure.Waiting -> ShotKind.First
-        MultiExposure.HasFirst -> ShotKind.Second
+        MultiExposure.HasFirst, MultiExposure.SecondInFlight -> ShotKind.Second
+    }
+
+    /** Second shutter accepted: from here discard and mode toggles are rejected until the pair resolves. */
+    fun beginSecond(s: MultiShotState): MultiShotState =
+        if (s.phase == MultiExposure.HasFirst) s.copy(phase = MultiExposure.SecondInFlight) else s
+
+    /** Shot 2 never reached processing (capture call failed): the first is still held. */
+    fun abortSecond(s: MultiShotState): MultiShotState =
+        if (s.phase == MultiExposure.SecondInFlight) s.copy(phase = MultiExposure.HasFirst) else s
+
+    /** Cancel and mode toggles are refused while shot 2 is in flight. */
+    fun canChangeMode(s: MultiShotState): Boolean = s.phase != MultiExposure.SecondInFlight
+
+    /** A first exposure is held (shot 2 pending or in flight). */
+    fun holdsFirst(s: MultiShotState): Boolean = s.phase == MultiExposure.HasFirst || s.phase == MultiExposure.SecondInFlight
+
+    /**
+     * Single frame invariant for every frame-changing path (look select, manual frame, mode toggle):
+     * double exposure with a held first keeps [current]; half-frame replaces ratio-forcing frames with NONE.
+     */
+    fun enforceFrame(s: MultiShotState, current: FrameId, requested: FrameId): FrameId = when {
+        frameLocked(s) -> current
+        s.mode == MultiMode.Half && FrameGeometry.forcedAspect(requested, true) != null -> FrameId.NONE
+        else -> requested
     }
 
     /** First exposure developed and stored. Ignored if the mode changed while it was developing. */
@@ -47,8 +74,9 @@ object MultiShotRules {
 
     /** Second shot failed. [firstDropped]: the stored first was lost (OOM, trim, missing) so the pair restarts. */
     fun onSecondFailed(s: MultiShotState, firstDropped: Boolean): MultiShotStep =
-        if (firstDropped && s.phase == MultiExposure.HasFirst) MultiShotStep(s.copy(phase = MultiExposure.Waiting), discardedFirst = true)
-        else MultiShotStep(s)
+        if (!holdsFirst(s)) MultiShotStep(s)
+        else if (firstDropped) MultiShotStep(s.copy(phase = MultiExposure.Waiting), discardedFirst = true)
+        else MultiShotStep(s.copy(phase = MultiExposure.HasFirst))
 
     /** User cancel: discard shot 1, stay armed. */
     fun cancel(s: MultiShotState): MultiShotStep =
@@ -61,10 +89,10 @@ object MultiShotRules {
     fun maxOutstanding(s: MultiShotState): Int = if (s.mode == MultiMode.None) 2 else 1
 
     /** Half-frame forces 4:3 capture (each half is cropped to 0.72) and frames that force a ratio are skipped. */
-    fun ratioLocked(s: MultiShotState): Boolean = s.mode == MultiMode.Half || s.phase == MultiExposure.HasFirst
+    fun ratioLocked(s: MultiShotState): Boolean = s.mode == MultiMode.Half || holdsFirst(s)
 
     /** Double exposure needs shot 2 to share shot 1's image-area aspect. */
-    fun frameLocked(s: MultiShotState): Boolean = s.mode == MultiMode.Double && s.phase == MultiExposure.HasFirst
+    fun frameLocked(s: MultiShotState): Boolean = s.mode == MultiMode.Double && holdsFirst(s)
 }
 
 /** SPEC 7.4: half-frame diptych geometry. Two upright halves of aspect [HALF_ASPECT] side by side. */

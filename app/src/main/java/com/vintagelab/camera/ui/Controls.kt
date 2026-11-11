@@ -72,6 +72,7 @@ import com.vintagelab.camera.R
 import com.vintagelab.camera.camera.FlashMode
 import com.vintagelab.camera.capture.FlashGel
 import com.vintagelab.camera.capture.MultiExposure
+import com.vintagelab.camera.capture.MultiShotRules
 import com.vintagelab.camera.capture.MultiMode
 import com.vintagelab.camera.camera.Lens
 import com.vintagelab.camera.looks.AspectRatio
@@ -232,10 +233,12 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses:
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off)) },
+                enabled = MultiShotRules.canChangeMode(s.multi),
                 onClick = { onIntent(CameraIntent.ToggleDoubleExposure); expanded = false },
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off)) },
+                enabled = MultiShotRules.canChangeMode(s.multi),
                 onClick = { onIntent(CameraIntent.ToggleHalfFrame); expanded = false },
             )
             DropdownMenuItem(
@@ -255,10 +258,10 @@ fun CaptureModeButtons(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
     val on = stringResource(R.string.state_on)
     val off = stringResource(R.string.state_off)
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-        TextButton(onClick = { onIntent(CameraIntent.ToggleDoubleExposure) }) {
+        TextButton(enabled = MultiShotRules.canChangeMode(s.multi), onClick = { onIntent(CameraIntent.ToggleDoubleExposure) }) {
             Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off), color = VlColors.Ink)
         }
-        TextButton(onClick = { onIntent(CameraIntent.ToggleHalfFrame) }) {
+        TextButton(enabled = MultiShotRules.canChangeMode(s.multi), onClick = { onIntent(CameraIntent.ToggleHalfFrame) }) {
             Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off), color = VlColors.Ink)
         }
         TextButton(onClick = { onIntent(CameraIntent.CycleFlashGel) }) {
@@ -502,7 +505,8 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
 @Composable
 fun MultiShotChip(s: CameraUiState, onIntent: (CameraIntent) -> Unit, modifier: Modifier = Modifier) {
     if (s.multiMode == MultiMode.None) return
-    val has = s.multiExposure == MultiExposure.HasFirst
+    val has = MultiShotRules.holdsFirst(s.multi)
+    val canCancel = s.multiExposure == MultiExposure.HasFirst
     val label = stringResource(
         if (s.multiMode == MultiMode.Double) R.string.multi_chip_double else R.string.multi_chip_half,
         if (has) 1 else 0,
@@ -512,12 +516,12 @@ fun MultiShotChip(s: CameraUiState, onIntent: (CameraIntent) -> Unit, modifier: 
         modifier
             .clip(RoundedCornerShape(VlRadius.Chip))
             .background(VlColors.Raised.copy(alpha = 0.88f))
-            .padding(start = 12.dp, end = if (has) 0.dp else 12.dp)
+            .padding(start = 12.dp, end = if (canCancel) 0.dp else 12.dp)
             .semantics { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = VlType.labelValue(), color = VlColors.Ink, modifier = Modifier.padding(vertical = 10.dp))
-        if (has) {
+        if (canCancel) {
             Box(
                 Modifier.size(44.dp).clickable(role = Role.Button) { onIntent(CameraIntent.CancelFirstExposure) }.semantics { contentDescription = cancelCd },
                 contentAlignment = Alignment.Center,

@@ -143,7 +143,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         when (intent) {
             is CameraIntent.SelectLook -> {
                 val p = presets?.get(intent.id) ?: return
-                _state.update { it.copy(lookId = p.id, frame = p.defaultFrame, dateStamp = p.dateStamp.enabledByDefault) }
+                _state.update { it.copy(lookId = p.id, frame = MultiShotRules.enforceFrame(it.multi, it.frame, p.defaultFrame), dateStamp = p.dateStamp.enabledByDefault) }
                 persist()
             }
             CameraIntent.ToggleLens -> {
@@ -171,7 +171,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             CameraIntent.CancelTimer -> cancelCountdown()
             is CameraIntent.SetFrame -> {
                 if (!CameraRules.frameEnabled(_state.value)) return
-                _state.update { it.copy(frame = intent.frame) }
+                _state.update { it.copy(frame = MultiShotRules.enforceFrame(it.multi, it.frame, intent.frame)) }
                 persist()
             }
             CameraIntent.ToggleDateStamp -> {
@@ -180,7 +180,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             CameraIntent.ToggleDoubleExposure -> toggleMulti(MultiMode.Double)
             CameraIntent.ToggleHalfFrame -> toggleMulti(MultiMode.Half)
-            CameraIntent.CancelFirstExposure -> applyMulti(MultiShotRules.cancel(_state.value.multi))
+            CameraIntent.CancelFirstExposure -> {
+                if (!MultiShotRules.canChangeMode(_state.value.multi)) return
+                applyMulti(MultiShotRules.cancel(_state.value.multi))
+            }
             CameraIntent.CycleFlashGel -> {
                 _state.update { it.copy(flashGel = it.flashGel.next()) }
                 persist()
@@ -365,6 +368,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val kind = MultiShotRules.nextShot(s.multi)
         val mode = s.multiMode
         val epoch = bgEpoch
+        if (kind == ShotKind.Second) {
+            // Reserve the pair atomically at the shutter: discard/toggles are rejected from now on.
+            val m = MultiShotRules.beginSecond(s.multi)
+            _state.update { it.copy(multiExposure = m.phase) }
+        }
         taking = true
         _state.update { it.copy(lookSeed = Random.nextLong()) }
         publishCaptureState()
@@ -374,10 +382,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 controller.takePicture()
             } catch (e: CancellationException) {
                 taking = false
+                abortSecond(kind)
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "takePicture failed", e)
                 taking = false
+                abortSecond(kind)
                 fail(CaptureErrorKind.DevelopFailed)
                 return@launch
             }
@@ -446,7 +456,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // ---- multi-shot modes (SPEC 7.4) ----
 
+    private fun abortSecond(kind: ShotKind) {
+        if (kind == ShotKind.Second) {
+            val m = MultiShotRules.abortSecond(_state.value.multi)
+            _state.update { it.copy(multiExposure = m.phase) }
+        }
+    }
+
     private fun toggleMulti(mode: MultiMode) {
+        if (!MultiShotRules.canChangeMode(_state.value.multi)) return
         val step = MultiShotRules.toggle(_state.value.multi, mode)
         applyMulti(step)
         if (step.state.mode == MultiMode.Half) {
@@ -454,7 +472,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             _state.update {
                 it.copy(
                     ratio = AspectRatio.R4_3,
-                    frame = if (FrameGeometry.forcedAspect(it.frame, true) != null) FrameId.NONE else it.frame,
+                    frame = MultiShotRules.enforceFrame(it.multi, it.frame, it.frame),
                 )
             }
             persist()
@@ -471,7 +489,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 multiDropSeq = if (notify && step.discardedFirst) it.multiDropSeq + 1 else it.multiDropSeq,
             )
         }
-        if (step.state.phase != MultiExposure.HasFirst) {
+        if (!MultiShotRules.holdsFirst(step.state)) {
             app.capturePipeline.clearFirst()
             ghost = null
             renderer?.ghost = null
