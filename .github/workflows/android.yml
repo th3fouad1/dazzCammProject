@@ -1,0 +1,57 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip until Gradle project exists
+        id: guard
+        run: |
+          if [ -f gradlew ]; then echo "has_gradle=true" >> "$GITHUB_OUTPUT"; else echo "No gradlew yet - skipping build"; echo "has_gradle=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-java@v4
+        if: steps.guard.outputs.has_gradle == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.guard.outputs.has_gradle == 'true'
+
+      - name: Build, unit tests, lint
+        if: steps.guard.outputs.has_gradle == 'true'
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
+
+      - name: Upload debug APK
+        if: steps.guard.outputs.has_gradle == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload reports
+        if: always() && steps.guard.outputs.has_gradle == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
