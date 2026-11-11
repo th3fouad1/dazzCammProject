@@ -60,7 +60,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -68,6 +70,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.vintagelab.camera.R
 import com.vintagelab.camera.camera.FlashMode
+import com.vintagelab.camera.capture.FlashGel
+import com.vintagelab.camera.capture.MultiExposure
+import com.vintagelab.camera.capture.MultiMode
 import com.vintagelab.camera.camera.Lens
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
@@ -149,7 +154,26 @@ fun FlashButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
             else -> R.string.state_flash_on
         },
     )
-    ControlButton(stringResource(R.string.cd_flash), st, effective != FlashMode.OFF, icon = icon) { onIntent(CameraIntent.CycleFlash) }
+    val gelOn = CameraRules.gelVisible(s) && s.flashGel != FlashGel.NONE
+    val stateText = if (gelOn) stringResource(R.string.state_flash_with_gel, st, stringResource(gelName(s.flashGel))) else st
+    Box {
+        ControlButton(stringResource(R.string.cd_flash), stateText, effective != FlashMode.OFF, icon = icon) { onIntent(CameraIntent.CycleFlash) }
+        if (gelOn) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp).size(8.dp).clip(CircleShape)
+                    .background(Color(s.flashGel.r, s.flashGel.g, s.flashGel.b)).border(1.dp, VlColors.Hairline, CircleShape),
+            )
+        }
+    }
+}
+
+/** SPEC 7.4 */
+fun gelName(g: FlashGel): Int = when (g) {
+    FlashGel.NONE -> R.string.gel_none
+    FlashGel.WARM -> R.string.gel_warm
+    FlashGel.RED -> R.string.gel_red
+    FlashGel.BLUE -> R.string.gel_blue
+    FlashGel.GREEN -> R.string.gel_green
 }
 
 @Composable
@@ -170,7 +194,7 @@ fun RatioButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
         AspectRatio.R16_9 -> R.string.label_ratio_16_9 to R.string.state_ratio_16_9
     }
     ControlButton(
-        stringResource(R.string.cd_ratio), stringResource(st), null, enabled = CameraRules.lensRatioEnabled(s), text = stringResource(label),
+        stringResource(R.string.cd_ratio), stringResource(st), null, enabled = CameraRules.ratioEnabled(s), text = stringResource(label),
     ) { onIntent(CameraIntent.SetRatio(AspectRatio.entries[(s.ratio.ordinal + 1) % AspectRatio.entries.size])) }
 }
 
@@ -185,8 +209,8 @@ fun FrameButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
         FrameId.FILM_120 -> VlIcons.FrameStrip to R.string.state_frame_film120
         FrameId.SLIDE_MOUNT -> VlIcons.FrameInstant to R.string.state_frame_slide_mount
     }
-    ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, icon = icon) {
-        onIntent(CameraIntent.SetFrame(FrameId.entries[(s.frame.ordinal + 1) % FrameId.entries.size]))
+    ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, enabled = CameraRules.frameEnabled(s), icon = icon) {
+        onIntent(CameraIntent.SetFrame(CameraRules.nextFrame(s.frame, half = s.multiMode == MultiMode.Half)))
     }
 }
 
@@ -199,12 +223,46 @@ fun DateStampButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
 }
 
 @Composable
-fun MoreMenu(onOpenLicenses: () -> Unit, lampOn: Boolean? = null) {
+fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val on = stringResource(R.string.state_on)
+    val off = stringResource(R.string.state_off)
     Box {
-        ControlButton(stringResource(R.string.cd_more), null, lampOn, icon = VlIcons.More) { expanded = true }
+        ControlButton(stringResource(R.string.cd_more), null, moreLamp(s), icon = VlIcons.More) { expanded = true }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off)) },
+                onClick = { onIntent(CameraIntent.ToggleDoubleExposure); expanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off)) },
+                onClick = { onIntent(CameraIntent.ToggleHalfFrame); expanded = false },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel)))) },
+                onClick = { onIntent(CameraIntent.CycleFlashGel) },
+            )
             DropdownMenuItem(text = { Text(stringResource(R.string.menu_licenses)) }, onClick = { expanded = false; onOpenLicenses() })
+        }
+    }
+}
+
+fun moreLamp(s: CameraUiState): Boolean? = if (s.multiMode != MultiMode.None || s.flashGel != FlashGel.NONE) true else null
+
+/** Sheet variant of the capture-mode controls (Mini layout). */
+@Composable
+fun CaptureModeButtons(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    val on = stringResource(R.string.state_on)
+    val off = stringResource(R.string.state_off)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        TextButton(onClick = { onIntent(CameraIntent.ToggleDoubleExposure) }) {
+            Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_double_exposure), if (s.multiMode == MultiMode.Double) on else off), color = VlColors.Ink)
+        }
+        TextButton(onClick = { onIntent(CameraIntent.ToggleHalfFrame) }) {
+            Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_half_frame), if (s.multiMode == MultiMode.Half) on else off), color = VlColors.Ink)
+        }
+        TextButton(onClick = { onIntent(CameraIntent.CycleFlashGel) }) {
+            Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel))), color = VlColors.Ink)
         }
     }
 }
@@ -223,13 +281,13 @@ fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicense
         Column(modifier.background(VlColors.Deck).padding(vertical = 8.dp), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
             items()
             Spacer(Modifier.weight(1f))
-            MoreMenu(onOpenLicenses)
+            MoreMenu(s, onIntent, onOpenLicenses)
         }
     } else {
         Row(modifier.background(VlColors.Deck).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             items()
             Spacer(Modifier.weight(1f))
-            MoreMenu(onOpenLicenses)
+            MoreMenu(s, onIntent, onOpenLicenses)
         }
     }
 }
@@ -411,7 +469,7 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
         }
     }
     val more: @Composable () -> Unit = {
-        ControlButton(stringResource(R.string.cd_more), null, s.flash != FlashMode.OFF || s.timer != TimerMode.OFF, icon = VlIcons.More) { sheet = true }
+        ControlButton(stringResource(R.string.cd_more), null, s.flash != FlashMode.OFF || s.timer != TimerMode.OFF || moreLamp(s) == true, icon = VlIcons.More) { sheet = true }
     }
     if (vertical) {
         Column(modifier.background(VlColors.Deck), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -431,10 +489,39 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 FlashButton(s, onIntent); TimerButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
             }
+            CaptureModeButtons(s, onIntent)
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) }
                 TextButton(onClick = { sheet = false; onOpenLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }
             }
+        }
+    }
+}
+
+/** SPEC 7.4 / DESIGN §6.8: "1/2" progress chip with a cancel control once the first shot is held. */
+@Composable
+fun MultiShotChip(s: CameraUiState, onIntent: (CameraIntent) -> Unit, modifier: Modifier = Modifier) {
+    if (s.multiMode == MultiMode.None) return
+    val has = s.multiExposure == MultiExposure.HasFirst
+    val label = stringResource(
+        if (s.multiMode == MultiMode.Double) R.string.multi_chip_double else R.string.multi_chip_half,
+        if (has) 1 else 0,
+    )
+    val cancelCd = stringResource(R.string.cd_multi_cancel)
+    Row(
+        modifier
+            .clip(RoundedCornerShape(VlRadius.Chip))
+            .background(VlColors.Raised.copy(alpha = 0.88f))
+            .padding(start = 12.dp, end = if (has) 0.dp else 12.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = VlType.labelValue(), color = VlColors.Ink, modifier = Modifier.padding(vertical = 10.dp))
+        if (has) {
+            Box(
+                Modifier.size(44.dp).clickable(role = Role.Button) { onIntent(CameraIntent.CancelFirstExposure) }.semantics { contentDescription = cancelCd },
+                contentAlignment = Alignment.Center,
+            ) { Text("×", style = VlType.labelValue(), color = VlColors.Ink) }
         }
     }
 }

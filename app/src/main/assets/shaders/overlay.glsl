@@ -15,6 +15,9 @@ uniform vec4 uMount;        // slide_mount (window radius, shadow blur, shadow s
 uniform vec2 uMountShadowOff; // slide_mount shadow offset in S
 uniform vec4 uSprocket;     // (pitch, w, h, radius) in S
 uniform vec2 uStampGeom;    // (inset, capHeight) in S
+uniform sampler2D uGhost;  // preview only: low-res first exposure (bitmap rows, top at t = 0)
+uniform float uGhostAlpha;  // 0 = off
+uniform float uGhostMirror; // 1 = flip x (front-camera preview)
 uniform vec4 uStampColor;
 uniform float uStampOn;
 uniform vec4 uStampDigits[2]; // 8 glyph codes: 0-9 digits, 10 blank, 11 apostrophe
@@ -130,6 +133,10 @@ void main() {
     if (ip.x >= 0.0 && ip.y >= 0.0 && ip.x < rs.x && ip.y < rs.y) {
         vec2 iuv = ip / rs;
         c = texture(uInput, vec2(iuv.x, 1.0 - iuv.y)).rgb;
+        if (uGhostAlpha > 0.0) {
+            vec2 gu = vec2(uGhostMirror > 0.5 ? 1.0 - iuv.x : iuv.x, iuv.y);
+            c = mix(c, texture(uGhost, gu).rgb, uGhostAlpha);
+        }
         if (uFrame == 6) {
             // Rounded window: mount colour outside it, soft drop shadow cast by the mount inside it.
             float S = uShortSide;

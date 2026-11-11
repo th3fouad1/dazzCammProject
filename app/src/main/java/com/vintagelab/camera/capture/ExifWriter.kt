@@ -36,6 +36,13 @@ object ExifWriter {
         emptyMap()
     }
 
+    /** True when the camera JPEG reports that the flash fired (EXIF Flash bit 0). */
+    fun flashFired(jpeg: ByteArray): Boolean = try {
+        ExifInterface(ByteArrayInputStream(jpeg)).getAttributeInt(ExifInterface.TAG_FLASH, 0) and 1 != 0
+    } catch (e: java.io.IOException) {
+        false
+    }
+
     /** Pure: the full attribute set to write. */
     fun plan(source: Map<String, String>, software: String, captureTime: LocalDateTime): Map<String, String> {
         val out = LinkedHashMap<String, String>()

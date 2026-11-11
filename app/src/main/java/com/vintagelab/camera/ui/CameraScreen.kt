@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.vintagelab.camera.R
 import com.vintagelab.camera.capture.CaptureErrorKind
+import com.vintagelab.camera.capture.MultiExposure
+import com.vintagelab.camera.capture.MultiMode
 import com.vintagelab.camera.gl.PreviewHost
 import com.vintagelab.camera.ui.theme.VlColors
 import kotlinx.coroutines.launch
@@ -95,6 +97,22 @@ fun CameraScreen(
                 },
             ),
         )
+    }
+    LaunchedEffect(state.multiDropSeq) {
+        if (state.multiDropSeq > 0L) {
+            announce(res.getString(R.string.msg_first_dropped))
+            snackbar.showSnackbar(res.getString(R.string.msg_first_dropped))
+        }
+    }
+    LaunchedEffect(state.multiMode) {
+        when (state.multiMode) {
+            MultiMode.Double -> announce(res.getString(R.string.a11y_double_on))
+            MultiMode.Half -> announce(res.getString(R.string.a11y_half_on))
+            MultiMode.None -> Unit
+        }
+    }
+    LaunchedEffect(state.multiExposure) {
+        if (state.multiExposure == MultiExposure.HasFirst) announce(res.getString(R.string.a11y_first_kept))
     }
     LaunchedEffect(state.renderMode) { if (state.renderMode == RenderMode.Passthrough) snackbar.showSnackbar(res.getString(R.string.err_looks_unavailable)) }
     // Announcer messages.
@@ -144,7 +162,7 @@ fun CameraScreen(
             Snackbar(it, containerColor = VlColors.Raised, contentColor = VlColors.Ink)
         }
         Box(Modifier.size(1.dp).semantics { liveRegion = LiveRegionMode.Polite; contentDescription = announcement })
-        ScreenFlashOverlay(onScreenFlash)
+        ScreenFlashOverlay(onScreenFlash, state.flashGel)
     }
 }
 
@@ -165,7 +183,10 @@ fun CameraLayout(
         val m = LayoutMath.metrics(mode, landscape)
         val group = { i: Float -> Modifier.semantics { isTraversalGroup = true; traversalIndex = i } }
         val slot: @Composable (Modifier) -> Unit = { mod ->
-            ViewfinderSlot(s, onIntent, previewHost, swipeHorizontal = !landscape || mode == LayoutMode.Mini, modifier = mod.then(group(2f)))
+            Box(mod.then(group(2f))) {
+                ViewfinderSlot(s, onIntent, previewHost, swipeHorizontal = !landscape || mode == LayoutMode.Mini, modifier = Modifier.fillMaxSize())
+                MultiShotChip(s, onIntent, Modifier.align(Alignment.TopStart).padding(12.dp))
+            }
         }
         if (!landscape) {
             Column(Modifier.fillMaxSize()) {

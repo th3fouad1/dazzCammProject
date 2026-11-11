@@ -26,6 +26,11 @@ class MainActivity : ComponentActivity() {
         updateDisplay()
     }
 
+    override fun onStop() {
+        super.onStop()
+        vm.onBackground()
+    }
+
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         updateDisplay()

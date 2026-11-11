@@ -2,6 +2,8 @@ package com.vintagelab.camera.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.camera.core.ImageCapture
 import androidx.datastore.core.DataStore
@@ -24,10 +26,18 @@ import com.vintagelab.camera.capture.CaptureException
 import com.vintagelab.camera.capture.CaptureInput
 import com.vintagelab.camera.capture.CaptureSettings
 import com.vintagelab.camera.capture.DateStamp
+import com.vintagelab.camera.capture.FirstExposureMissing
+import com.vintagelab.camera.capture.FlashGel
+import com.vintagelab.camera.capture.MultiExposure
+import com.vintagelab.camera.capture.MultiMode
+import com.vintagelab.camera.capture.MultiShotRules
+import com.vintagelab.camera.capture.MultiShotStep
+import com.vintagelab.camera.capture.ShotKind
 import com.vintagelab.camera.gl.GlPreviewRenderer
 import com.vintagelab.camera.gl.PreviewEvent
 import com.vintagelab.camera.gl.PreviewHost
 import com.vintagelab.camera.gl.PreviewLook
+import com.vintagelab.camera.capture.FrameGeometry
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.LookState
@@ -73,7 +83,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private var boundKey: Any? = null
     private var countdownJob: Job? = null
 
-    private val jobs = Channel<Pair<CaptureInput, CaptureSettings>>(capacity = 1)
+    private class ShotJob(val input: CaptureInput, val settings: CaptureSettings, val kind: ShotKind, val mode: MultiMode, val bgEpoch: Int)
+
+    private val jobs = Channel<ShotJob>(capacity = 1)
+    /** Bumped when the app goes to the background: a first exposure that finishes later is dropped (SPEC 7.4). */
+    @Volatile private var bgEpoch = 0
+    private var ghost: Bitmap? = null
     private var taking = false
     private var outstanding = 0
     private var errorSeq = 0L
@@ -83,6 +98,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         controller.onEvent = ::onCameraEvent
         previewHost.onRendererReady = { r ->
             renderer = r
+            r.ghost = ghost
             boundKey = null
             refreshPreviewLook()
             rebindIfNeeded()
@@ -113,13 +129,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     timer = prefs[KEY_TIMER]?.let { t -> TimerMode.entries.firstOrNull { it.name == t } } ?: s.timer,
                     frame = prefs[KEY_FRAME]?.let { FrameId.fromId(it) } ?: preset.defaultFrame,
                     dateStamp = prefs[KEY_STAMP] ?: preset.dateStamp.enabledByDefault,
+                    flashGel = prefs[KEY_GEL]?.let { g -> FlashGel.entries.firstOrNull { it.name == g } } ?: s.flashGel,
                     lastShot = s.lastShot ?: lastShot,
                 )
             }
             refreshPreviewLook()
             rebindIfNeeded()
         }
-        app.appScope.launch { for ((input, settings) in jobs) develop(input, settings) }
+        app.appScope.launch { for (job in jobs) develop(job) }
     }
 
     fun onIntent(intent: CameraIntent) {
@@ -141,7 +158,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 persist()
             }
             is CameraIntent.SetRatio -> {
-                if (!CameraRules.lensRatioEnabled(_state.value)) return
+                if (!CameraRules.ratioEnabled(_state.value)) return
                 _state.update { it.copy(ratio = intent.ratio) }
                 persist()
                 rebindIfNeeded()
@@ -153,11 +170,19 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             CameraIntent.CancelTimer -> cancelCountdown()
             is CameraIntent.SetFrame -> {
+                if (!CameraRules.frameEnabled(_state.value)) return
                 _state.update { it.copy(frame = intent.frame) }
                 persist()
             }
             CameraIntent.ToggleDateStamp -> {
                 _state.update { it.copy(dateStamp = !it.dateStamp) }
+                persist()
+            }
+            CameraIntent.ToggleDoubleExposure -> toggleMulti(MultiMode.Double)
+            CameraIntent.ToggleHalfFrame -> toggleMulti(MultiMode.Half)
+            CameraIntent.CancelFirstExposure -> applyMulti(MultiShotRules.cancel(_state.value.multi))
+            CameraIntent.CycleFlashGel -> {
+                _state.update { it.copy(flashGel = it.flashGel.next()) }
                 persist()
             }
             CameraIntent.Shuffle -> _state.update { it.copy(lookSeed = Random.nextLong()) }
@@ -191,6 +216,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun attach(owner: LifecycleOwner) {
         this.owner = owner
+        verifyFirst()
         boundKey = null
         rebindIfNeeded()
     }
@@ -285,7 +311,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // ---- shutter / capture ----
 
-    private fun canAccept() = !taking && outstanding < 2
+    private fun canAccept() = !taking && outstanding < MultiShotRules.maxOutstanding(_state.value.multi)
 
     private fun shutter() {
         val s = _state.value
@@ -330,10 +356,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 dateStampOn = s.dateStamp,
                 stampCodes = DateStamp.codes(now).toList(),
                 grainTime = renderer?.lastGrainTime ?: 0f,
+                gel = s.flashGel,
             ),
             time = now,
             software = app.getString(R.string.app_name),
+            screenFlash = s.lens == Lens.FRONT && s.flash != FlashMode.OFF && s.caps.screenFlash,
         )
+        val kind = MultiShotRules.nextShot(s.multi)
+        val mode = s.multiMode
+        val epoch = bgEpoch
         taking = true
         _state.update { it.copy(lookSeed = Random.nextLong()) }
         publishCaptureState()
@@ -353,14 +384,19 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             taking = false
             outstanding++
             publishCaptureState()
-            jobs.send(input to settings)
+            jobs.send(ShotJob(input, settings, kind, mode, epoch))
         }
     }
 
-    private suspend fun develop(input: CaptureInput, settings: CaptureSettings) {
+    private suspend fun develop(job: ShotJob) {
+        val pipeline = app.capturePipeline
         // Per-job failure boundary: a throwing job must never kill the queue consumer.
-        val result = try {
-            app.capturePipeline.process(input, settings)
+        val result: Result<Any?> = try {
+            when (job.kind) {
+                ShotKind.Normal -> pipeline.process(job.input, job.settings)
+                ShotKind.First -> pipeline.processFirst(job.input, job.settings, job.mode)
+                ShotKind.Second -> pipeline.processSecond(job.input, job.settings, job.mode)
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
@@ -368,13 +404,95 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         }
         withContext(Dispatchers.Main) {
             outstanding--
-            result.onSuccess { uri ->
-                _state.update { it.copy(lastShot = uri, captureState = CaptureState.Saved(uri)) }
-            }.onFailure { e ->
-                Log.e(TAG, "capture failed", e)
-                fail((e as? CaptureException)?.kind ?: CaptureErrorKind.DevelopFailed)
+            val m = _state.value.multi
+            when (job.kind) {
+                ShotKind.Normal -> result.onSuccess { saved(it as Uri) }.onFailure { failed(it) }
+                ShotKind.First -> result.onSuccess { g ->
+                    if (job.bgEpoch != bgEpoch) {
+                        // Backgrounded while developing: free everything now (SPEC 7.4).
+                        pipeline.clearFirst()
+                        applyMulti(MultiShotRules.onFirstFailed(m), notify = true)
+                    } else {
+                        ghost = g as Bitmap?
+                        renderer?.ghost = ghost
+                        applyMulti(MultiShotRules.onFirstStored(m, job.mode))
+                    }
+                }.onFailure {
+                    applyMulti(MultiShotRules.onFirstFailed(m))
+                    failed(it)
+                }
+                ShotKind.Second -> result.onSuccess {
+                    applyMulti(MultiShotRules.onSecondSaved(m))
+                    saved(it as Uri)
+                }.onFailure {
+                    val dropped = !pipeline.hasFirst(job.mode)
+                    applyMulti(MultiShotRules.onSecondFailed(m, dropped), notify = true)
+                    // A vanished first exposure is reported by the drop notice, not as a develop error.
+                    if (it !is FirstExposureMissing) failed(it)
+                }
             }
             publishCaptureState()
+        }
+    }
+
+    private fun saved(uri: Uri) {
+        _state.update { it.copy(lastShot = uri, captureState = CaptureState.Saved(uri)) }
+    }
+
+    private fun failed(e: Throwable) {
+        Log.e(TAG, "capture failed", e)
+        fail((e as? CaptureException)?.kind ?: CaptureErrorKind.DevelopFailed)
+    }
+
+    // ---- multi-shot modes (SPEC 7.4) ----
+
+    private fun toggleMulti(mode: MultiMode) {
+        val step = MultiShotRules.toggle(_state.value.multi, mode)
+        applyMulti(step)
+        if (step.state.mode == MultiMode.Half) {
+            // Each half is cropped to 0.72 from a 4:3 frame; ratio and ratio-forcing frames are not used.
+            _state.update {
+                it.copy(
+                    ratio = AspectRatio.R4_3,
+                    frame = if (FrameGeometry.forcedAspect(it.frame, true) != null) FrameId.NONE else it.frame,
+                )
+            }
+            persist()
+            rebindIfNeeded()
+        }
+    }
+
+    /** Applies a reducer step; anything that leaves no first exposure frees the stored one and the ghost. */
+    private fun applyMulti(step: MultiShotStep, notify: Boolean = false) {
+        _state.update {
+            it.copy(
+                multiMode = step.state.mode,
+                multiExposure = step.state.phase,
+                multiDropSeq = if (notify && step.discardedFirst) it.multiDropSeq + 1 else it.multiDropSeq,
+            )
+        }
+        if (step.state.phase != MultiExposure.HasFirst) {
+            app.capturePipeline.clearFirst()
+            ghost = null
+            renderer?.ghost = null
+        }
+    }
+
+    /** MainActivity.onStop: drop the first exposure and the ghost so nothing stays in memory in the background. */
+    fun onBackground() {
+        bgEpoch++
+        app.capturePipeline.clearFirst()
+        ghost = null
+        renderer?.ghost = null
+        val m = _state.value.multi
+        if (m.phase == MultiExposure.HasFirst) applyMulti(MultiShotRules.onDropped(m), notify = true)
+    }
+
+    /** Trim or OOM may have emptied the store behind our back. */
+    private fun verifyFirst() {
+        val m = _state.value.multi
+        if (m.phase == MultiExposure.HasFirst && !app.capturePipeline.hasFirst(m.mode)) {
+            applyMulti(MultiShotRules.onDropped(m), notify = true)
         }
     }
 
@@ -415,6 +533,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 p[KEY_TIMER] = s.timer.name
                 p[KEY_FRAME] = s.frame.id
                 p[KEY_STAMP] = s.dateStamp
+                p[KEY_GEL] = s.flashGel.name
             }
         }
     }
@@ -435,5 +554,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val KEY_TIMER = stringPreferencesKey("timer")
         val KEY_FRAME = stringPreferencesKey("frame")
         val KEY_STAMP = booleanPreferencesKey("dateStamp")
+        val KEY_GEL = stringPreferencesKey("flashGel")
     }
 }

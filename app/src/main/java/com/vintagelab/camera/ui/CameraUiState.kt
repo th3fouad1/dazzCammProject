@@ -5,6 +5,12 @@ import androidx.compose.runtime.Immutable
 import com.vintagelab.camera.camera.FlashMode
 import com.vintagelab.camera.camera.Lens
 import com.vintagelab.camera.capture.CaptureErrorKind
+import com.vintagelab.camera.capture.FlashGel
+import com.vintagelab.camera.capture.FrameGeometry
+import com.vintagelab.camera.capture.MultiExposure
+import com.vintagelab.camera.capture.MultiMode
+import com.vintagelab.camera.capture.MultiShotState
+import com.vintagelab.camera.capture.MultiShotRules
 import com.vintagelab.camera.looks.AspectRatio
 import com.vintagelab.camera.looks.FrameId
 
@@ -90,7 +96,17 @@ data class CameraUiState(
     val imagePortrait: Boolean = true,
     /** Shots taken but not yet saved (0..2); drives the thumbnail "developing" pulse. */
     val developing: Int = 0,
+    /** SPEC 7.4: armed multi-shot mode and its progress (Off only with MultiMode.None). */
+    val multiMode: MultiMode = MultiMode.None,
+    val multiExposure: MultiExposure = MultiExposure.Off,
+    /** Bumped each time a stored first exposure was lost (background, trim, OOM); shows a notice once per value. */
+    val multiDropSeq: Long = 0L,
+    /** SPEC 7.4: user-selected flash gel (persisted); applied only when a flash fires. */
+    val flashGel: FlashGel = FlashGel.NONE,
 )
+
+/** The multi-shot slice of the UI state as a pure value. */
+val CameraUiState.multi: MultiShotState get() = MultiShotState(multiMode, multiExposure)
 
 sealed interface CameraIntent {
     data class SelectLook(val id: String) : CameraIntent
@@ -101,6 +117,12 @@ sealed interface CameraIntent {
     data object CancelTimer : CameraIntent
     data class SetFrame(val frame: FrameId) : CameraIntent
     data object ToggleDateStamp : CameraIntent
+
+    /** SPEC 7.4 */
+    data object ToggleDoubleExposure : CameraIntent
+    data object ToggleHalfFrame : CameraIntent
+    data object CancelFirstExposure : CameraIntent
+    data object CycleFlashGel : CameraIntent
     data object Shuffle : CameraIntent
     data object Shutter : CameraIntent
 
@@ -147,6 +169,24 @@ object CameraRules {
     /** DESIGN §6.1 enablement matrix. */
     fun lensRatioEnabled(s: CameraUiState): Boolean =
         s.camera == CameraStatus.Ready && s.captureState !is CaptureState.Countdown && s.captureState != CaptureState.Processing
+
+    /** Ratio is locked in half-frame (forced 4:3) and between the shots of a pair. */
+    fun ratioEnabled(s: CameraUiState): Boolean = lensRatioEnabled(s) && !MultiShotRules.ratioLocked(s.multi)
+
+    fun frameEnabled(s: CameraUiState): Boolean = !MultiShotRules.frameLocked(s.multi)
+
+    /** Frame cycle order; half-frame skips frames that force a ratio (each half is already cropped to 0.72). */
+    fun nextFrame(current: FrameId, half: Boolean): FrameId {
+        var f = current
+        repeat(FrameId.entries.size) {
+            f = FrameId.entries[(f.ordinal + 1) % FrameId.entries.size]
+            if (!half || FrameGeometry.forcedAspect(f, true) == null) return f
+        }
+        return current
+    }
+
+    /** Gel only means something when a flash can fire. */
+    fun gelVisible(s: CameraUiState): Boolean = s.flash != FlashMode.OFF && (if (s.lens == Lens.FRONT) s.caps.screenFlash else s.caps.hasFlashUnit)
 
     fun timerEnabled(s: CameraUiState): Boolean = s.captureState !is CaptureState.Countdown
 

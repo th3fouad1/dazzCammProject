@@ -33,6 +33,14 @@ class RenderTarget(
     val flipY: Boolean,
 )
 
+/** Optional extra inputs (SPEC 7.4): texture of the stored first exposure (capture blend) and the preview ghost. Textures use bitmap row order. */
+class RenderExtras(
+    val blendTex: Int = 0,
+    val ghostTex: Int = 0,
+    val ghostAlpha: Float = 0f,
+    val ghostMirror: Boolean = false,
+)
+
 /**
  * The fixed pass graph of SPEC §5 / §7.2, one instance per GL context:
  * Pass 0 normalize → Pass 1 geometry → Pass 2 pyramid (512/256/128) → Pass 3 combine → Pass 4 overlay.
@@ -92,6 +100,8 @@ class RenderGraph(
             p.set1i("uPyr1", 2)
             p.set1i("uPyr2", 3)
             p.set1i("uLookLut", 4)
+            p.set1i("uBlend", 5)
+            p.set1i("uGhost", 5)
         }
         lutTexture = Textures.create3D(LutLayout.SIZE, identityLut())
         lutPreset = null
@@ -134,6 +144,7 @@ class RenderGraph(
         u: UniformSet,
         target: RenderTarget,
         onInputConsumed: (() -> Unit)? = null,
+        extras: RenderExtras? = null,
     ) {
         ensureTargets(imageW, imageH)
         val a = fboA!!
@@ -195,6 +206,10 @@ class RenderGraph(
         bindTex(2, GLES30.GL_TEXTURE_2D, pyramid[1]!!.texture)
         bindTex(3, GLES30.GL_TEXTURE_2D, pyramid[2]!!.texture)
         bindTex(4, GLES30.GL_TEXTURE_3D, lutTexture)
+        val blend = extras?.blendTex ?: 0
+        bindTex(5, GLES30.GL_TEXTURE_2D, blend)
+        p3.set1f("uBlendOn", if (blend != 0) 1f else 0f)
+        p3.set4f("uGel", u.gel.x, u.gel.y, u.gel.z, u.gel.w)
         applyLook(p3, u)
         identityLayout(p3)
         draw()
@@ -209,10 +224,15 @@ class RenderGraph(
         applyLook(p4, u)
         p4.set4f("uImageRect", u.imageRect.x, u.imageRect.y, u.imageRect.z, u.imageRect.w)
         p4.set1f("uFlipY", if (target.flipY) 1f else 0f)
+        val ghost = extras?.ghostTex ?: 0
+        bindTex(5, GLES30.GL_TEXTURE_2D, ghost)
+        p4.set1f("uGhostAlpha", if (ghost != 0) extras!!.ghostAlpha else 0f)
+        p4.set1f("uGhostMirror", if (extras?.ghostMirror == true) 1f else 0f)
         draw()
         GLES30.glFlush()
         for (unit in 1..3) bindTex(unit, GLES30.GL_TEXTURE_2D, 0)
         bindTex(4, GLES30.GL_TEXTURE_3D, 0)
+        bindTex(5, GLES30.GL_TEXTURE_2D, 0)
     }
 
     /** Sets every §7.2 uniform (and the Pass 4 layout ones); unused names are ignored. */

@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.os.Handler
 import android.os.HandlerThread
+import com.vintagelab.camera.capture.FlashGel
 import com.vintagelab.camera.capture.FrameGeometry
+import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.LookState
 import com.vintagelab.camera.looks.Preset
 import com.vintagelab.camera.looks.SourceTransform
@@ -43,22 +45,29 @@ class OffscreenRenderer(
         bitmap: Bitmap,
         transform: SourceTransform,
         preset: Preset,
-        state: LookState,
+        state0: LookState,
         maxLongSide: Int,
+        /** SPEC 7.4: stored first exposure, screen-blended in before glow/grain (not recycled here). */
+        blend: Bitmap? = null,
+        /** SPEC 7.4: render only the colour work, unframed, without per-image effects (first exposure of a double exposure). */
+        firstExposure: Boolean = false,
     ): Bitmap = withContext(dispatcher) {
         ensure()
         val g = graph!!
         val cap = minOf(maxLongSide, limits.maxLongSide)
+        val state = if (firstExposure) state0.copy(frame = FrameId.NONE, dateStampOn = false, gel = FlashGel.NONE) else state0
         val layout = FrameGeometry.fitLayout(state.frame, transform.outWidth, transform.outHeight, cap, cap)
         val t = transform
         val crop = Vec4(
             t.crop.left.toFloat() / t.bufWidth, t.crop.top.toFloat() / t.bufHeight,
             t.crop.width.toFloat() / t.bufWidth, t.crop.height.toFloat() / t.bufHeight,
         )
-        val u = UniformMapper.withGeometry(UniformMapper.map(preset, state), crop, layout)
+        val base = UniformMapper.map(preset, state)
+        val u = UniformMapper.withGeometry(if (firstExposure) UniformMapper.firstExposure(base) else base, crop, layout)
 
         var tex = Textures.fromBitmap(bitmap)
         bitmap.recycle()
+        var blendTex = if (blend != null) Textures.fromBitmap(blend) else 0
         val target = Fbo(layout.canvasW, layout.canvasH)
         try {
             g.setLook(preset)
@@ -67,6 +76,7 @@ class OffscreenRenderer(
                 layout.imageW, layout.imageH, u,
                 RenderTarget(target.framebuffer, 0, 0, layout.canvasW, layout.canvasH, flipY = true),
                 onInputConsumed = { Textures.delete(tex); tex = 0 },
+                extras = RenderExtras(blendTex = blendTex),
             )
             val bytes = layout.canvasW * layout.canvasH * 4
             // Not retained across shots: the caller compresses right after, and the readback
@@ -85,6 +95,7 @@ class OffscreenRenderer(
             out
         } finally {
             Textures.delete(tex)
+            Textures.delete(blendTex)
             target.release()
             g.trimMemory()
         }

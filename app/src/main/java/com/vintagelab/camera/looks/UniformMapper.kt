@@ -2,6 +2,7 @@ package com.vintagelab.camera.looks
 
 import com.vintagelab.camera.capture.DateStamp
 import com.vintagelab.camera.capture.FrameGeometry
+import com.vintagelab.camera.capture.FlashGel
 import com.vintagelab.camera.capture.FrameLayout
 import kotlin.math.PI
 
@@ -17,6 +18,8 @@ data class LookState(
     /** 8 glyph codes from [DateStamp.codes]. */
     val stampCodes: List<Int> = List(DateStamp.SLOTS) { DateStamp.GLYPH_BLANK },
     val grainTime: Float = 0f,
+    /** Flash gel applied to this shot (capture only; NONE in the preview). */
+    val gel: FlashGel = FlashGel.NONE,
 )
 
 /**
@@ -47,6 +50,7 @@ data class UniformSet(
     // Pass 4 layout (not in §7.2's list; derived from FrameGeometry):
     val canvasSize: Vec2 = Vec2(1f, 1f),               // uCanvasSize (px)
     val imageRect: Vec4 = Vec4(0f, 0f, 1f, 1f),        // uImageRect (canvas uv, y down)
+    val gel: Vec4 = Vec4(1f, 1f, 1f, 0f),            // uGel (rgb tint, strength); strength 0 = no gel
 )
 
 /** Pure `Preset → UniformSet` mapping (SPEC §7.2). Frozen interface after Phase A. */
@@ -94,8 +98,26 @@ object UniformMapper {
             stampColor = Vec4(stamp.r, stamp.g, stamp.b, 1f),
             stampOn = if (state.dateStampOn) 1f else 0f,
             stampDigits = state.stampCodes.map { it.toFloat() },
-        )
+        ).withGel(state.gel)
     }
+
+    /** Gel: tints the centre glow (forced on if the look has none) plus a slight overall cast. */
+    fun UniformSet.withGel(gel: FlashGel): UniformSet =
+        if (gel == FlashGel.NONE) this else copy(
+            centerGlow = Vec2(maxOf(centerGlow.x, FlashGel.MIN_GLOW), maxOf(centerGlow.y, FlashGel.MIN_GLOW_RADIUS)),
+            gel = Vec4(gel.r, gel.g, gel.b, 1f),
+        )
+
+    /** Uniforms for the stored first exposure of a double exposure: colour work only, no per-image effects (those run once on the blend). */
+    fun firstExposure(set: UniformSet): UniformSet = set.copy(
+        grain = Vec3(0f, set.grain.y, 0f),
+        vignette = set.vignette.copy(x = 0f),
+        centerGlow = Vec2(0f, set.centerGlow.y),
+        leak = set.leak.copy(x = 0f),
+        dust = 0f,
+        stampOn = 0f,
+        gel = Vec4(1f, 1f, 1f, 0f),
+    )
 
     /** Fills the resolution-dependent fields for one render target. */
     fun withGeometry(set: UniformSet, cropRectUv: Vec4, layout: FrameLayout): UniformSet {

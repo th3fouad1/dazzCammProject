@@ -1,6 +1,6 @@
 // Pass 3 - Combine. Effect functions come from shaders/effects/*.glsl (prepended at load).
 // Fixed order (SPEC 7.2): colour (3D LUT), soft focus/bloom/sharpen, centre glow, leak,
-// vignette, dust, grain. All positions in normalized units (fraction of the short side).
+// vignette, dust, grain. Double exposure screens the stored first exposure in before the glow.. All positions in normalized units (fraction of the short side).
 IN vec2 vUv;
 uniform sampler2D uInput;
 uniform sampler2D uPyr0;
@@ -21,6 +21,9 @@ uniform vec4 uLeak;       // (enabled, variant, amount, angle)
 uniform vec2 uLeakPos;    // image uv, y down
 uniform float uDust;
 uniform float uSeed;
+uniform sampler2D uBlend;  // stored first exposure (bitmap rows: top at t = 0)
+uniform float uBlendOn;
+uniform vec4 uGel;         // (rgb tint, strength)
 
 void main() {
     vec2 img = vec2(vUv.x, 1.0 - vUv.y);
@@ -32,7 +35,8 @@ void main() {
     vec3 b1 = fxLookColor(uLookLut, texture(uPyr1, vUv).rgb, uLutStrength);
     vec3 b2 = fxLookColor(uLookLut, texture(uPyr2, vUv).rgb, uLutStrength);
     c = fxSoftBloom(c, b0, b1, b2, uSoftFocus, uBloom, uSharpen);
-    c = fxCenterGlow(c, p, uCenterGlow);
+    if (uBlendOn > 0.5) c = fxScreen(c, texture(uBlend, img).rgb);
+    c = fxCenterGlow(c, p, uCenterGlow, uGel);
     c = fxLeak(c, p, aspect, uLeak, uLeakPos);
     c = fxVignette(c, img, p, uVignette);
     c = fxDust(c, p, uDust, uSeed, uShortSide);

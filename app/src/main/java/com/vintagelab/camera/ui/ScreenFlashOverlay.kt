@@ -14,12 +14,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import com.vintagelab.camera.capture.FlashGel
 import com.vintagelab.camera.ui.theme.VlColors
 import kotlinx.coroutines.launch
 
 /** Front screen flash (DESIGN §6.6, K12): full-window warm-white overlay + max brightness. */
 @Composable
-fun ScreenFlashOverlay(register: (ImageCapture.ScreenFlash?) -> Unit) {
+fun ScreenFlashOverlay(register: (ImageCapture.ScreenFlash?) -> Unit, gel: FlashGel = FlashGel.NONE) {
     val activity = LocalContext.current.findActivity()
     val alpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -46,5 +49,6 @@ fun ScreenFlashOverlay(register: (ImageCapture.ScreenFlash?) -> Unit) {
         register(flash)
         onDispose { register(null) }
     }
-    if (alpha.value > 0f) Box(Modifier.fillMaxSize().alpha(alpha.value).background(VlColors.FlashWhite))
+    val tint = if (gel == FlashGel.NONE) VlColors.FlashWhite else lerp(VlColors.FlashWhite, Color(gel.r, gel.g, gel.b), 0.7f)
+    if (alpha.value > 0f) Box(Modifier.fillMaxSize().alpha(alpha.value).background(tint))
 }

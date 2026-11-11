@@ -78,6 +78,16 @@ class GlPreviewRenderer(
             view.requestRender()
         }
 
+    /** SPEC 7.4: low-res first exposure drawn as a 50 % ghost in Pass 4 (null = none). Owner keeps it alive; it is never recycled here. */
+    @Volatile
+    var ghost: android.graphics.Bitmap? = null
+        set(value) {
+            field = value
+            view.requestRender()
+        }
+    private var ghostUploaded: android.graphics.Bitmap? = null
+    private var ghostTex = 0
+
     /** Last grain time presented; the capture job freezes it at shutter (SPEC §5.2). */
     @Volatile
     var lastGrainTime: Float = 0f
@@ -149,6 +159,8 @@ class GlPreviewRenderer(
         graph = g
         cachedLook = null
         appliedPreset = null
+        ghostTex = 0
+        ghostUploaded = null
         if (g.oesUnavailable) post(PreviewEvent.GpuUnsupported)
         if (g.passthrough) post(PreviewEvent.Passthrough)
         if (hadContext) {
@@ -215,11 +227,19 @@ class GlPreviewRenderer(
 
         val x = (viewW - layout.canvasW) / 2
         val y = (viewH - layout.canvasH) / 2
+        val gb = ghost
+        if (gb !== ghostUploaded) {
+            Textures.delete(ghostTex)
+            ghostTex = if (gb != null && !gb.isRecycled) Textures.fromBitmap(gb) else 0
+            ghostUploaded = gb
+        }
+        val extras = if (ghostTex != 0) RenderExtras(ghostTex = ghostTex, ghostAlpha = GHOST_ALPHA, ghostMirror = info.isMirroring) else null
         g.setLook(lk.preset)
         g.render(
             RenderInput(cam.texture, oes = true, stMatrix = texMatrix, transform = transform),
             layout.imageW, layout.imageH, u,
             RenderTarget(0, x, y, layout.canvasW, layout.canvasH, flipY = false),
+            extras = extras,
         )
         lastGrainTime = grainTime
         tapMapping = TapMapping(layout, transform, bufW, bufH)
@@ -284,6 +304,7 @@ class GlPreviewRenderer(
 
     private companion object {
         const val TAG = "GlPreviewRenderer"
+        const val GHOST_ALPHA = 0.5f
 
         /** Column-major: (s, t) -> (s, 1 - t); undoes the shader's GL-orientation flip. */
         val RAW_BUFFER_MATRIX = floatArrayOf(

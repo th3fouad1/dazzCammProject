@@ -305,6 +305,49 @@ Drawn in Pass 4 in both paths (D6), geometry from `capture/FrameGeometry.kt` (S 
 - Date stamp: capture time, format `'yy MM dd`, bottom-right of the image area, inset 0.04 S, cap height 0.035 S,
   colour from preset, slight glow. Glyphs: procedural SDF 7-segment in the shader (no font asset).
 
+### 7.4 Capture modes (Sprint B3)
+Three user-armed capture behaviours, all on the existing render graph; none adds a pass.
+
+**State.** `CameraUiState.multiMode: None|Double|Half` and `multiExposure: Off|Waiting|HasFirst`
+(`capture/CaptureModes.kt`, pure reducers `MultiShotRules`). Arming sets `Waiting`; a stored first shot sets `HasFirst`;
+a saved second shot returns to `Waiting` (the mode stays armed). Intents: `ToggleDoubleExposure`, `ToggleHalfFrame`,
+`CancelFirstExposure` (discard shot 1, stay armed), `CycleFlashGel`. While armed at most **one** shot is in flight
+(`maxOutstanding`=1) so shot 2 can never race the storing of shot 1; the single in-flight render rule (§6.5 / K17) is unchanged.
+The shot kind (`Normal|First|Second`) is fixed at the shutter, after the timer, into the K17a snapshot.
+
+**First exposure store.** `CapturePipeline` keeps at most one first exposure: a single ARGB bitmap, long side
+<= `STORE_LONG_SIDE` (3072) and <= the memory-budgeted cap, so a third buffer stays affordable. It is dropped (`clearFirst`)
+on cancel, mode change, `MainActivity.onStop`, `onTrimMemory >= UI_HIDDEN`, and after an OOM that survives the 2048 retry
+while developing shot 2. Dropping while HasFirst returns to Waiting and shows "First shot discarded." (`multiDropSeq`).
+A first exposure that finishes developing after the app went to the background is dropped immediately (`bgEpoch`).
+
+**Double exposure.** Shot 1 is rendered with the current look through Passes 0-3 *without* per-image effects (grain, dust,
+leak, vignette, glow, gel, frame, stamp; `UniformMapper.firstExposure`), unframed, and read back (not saved).
+Shot 2 uploads it as `uBlend` (texture unit 5) and Pass 3 screen-blends it right after colour/bloom and before centre glow:
+`c = 1-(1-a)(1-b)` (`fxScreen`). Glow, leak, vignette, dust, grain, frame and stamp therefore run **once** on the combined
+image. Ratio and frame are locked between the shots (same image-area aspect). Preview: a <= 512 px copy is the preview
+renderer's `ghost`, sampled in Pass 4 at 50 % inside the image rect (`uGhost`, unit 5, one extra texture fetch, mirrored for
+the front camera); capture contexts never set it. Shot 2 is the only EXIF source (capture time, lens data) of the saved file.
+
+**Half-frame.** Each half is an upright crop of aspect 0.72 taken with `CropMath.constrainToAspect`
+(from a 4:3 capture; ratio is forced to 4:3 and locked while armed). Shot 1 is stored as the upright half bitmap.
+`Diptych.layout(cap)`: halves `halfW = 0.72 H` side by side, gap `0.015 H` (H = half height = canvas short side), dark base
+#101010, canvas `(1.455 H) x H`, long side <= cap. The composite is drawn on the CPU (`Canvas`) and then goes through the
+normal graph with an identity transform, so look, grain, frame and stamp apply once over the whole diptych. Frames that
+force a ratio (square, mini, roll film) are skipped while armed (`CameraRules.nextFrame`) because the diptych has its own
+shape. No ghost is shown; the chip reads "Half-frame 1/2".
+Note: the diptych is landscape (about 1.455:1), as a pair of portrait frames on half-frame film.
+
+**Coloured flash.** `FlashGel` none/warm/red/blue/green is a persisted user setting (DataStore key `flashGel`), not part of
+presets.json. At capture it applies only if a flash really fired: EXIF Flash bit 0 of the camera JPEG, or the front screen
+flash on (`FlashGel.effective`). Then `uGel` = (rgb, 1): the centre glow is tinted by the gel colour (and forced to at least
+amount 0.35 / radius 0.55 if the look has none) and the whole frame gets a cast `mix(c, c*gel, 0.18)` (`fxCenterGlow`).
+The front screen-flash overlay is tinted with the gel. The preview is unchanged except for a coloured dot on the flash icon.
+In a pair, the gel of shot 2 applies to the combined image; shot 1's flash is not tinted.
+
+### 7.5 Decisions (B3)
+See D11-D14 in section 11.
+
 ## 8. Behaviour & failure handling
 
 | feature / event | behaviour |
@@ -382,6 +425,10 @@ pipeline stays.
 | D8 | minSdk 29 | Accepted (owner) | 2026-11-11 |
 | D9 | reference device = OnePlus 11 (CPH2449), Snapdragon 8 Gen 2 (SM8550), Adreno 740, Android 15 / API 35 | Accepted | 2026-11-11 |
 | D10 | colour = t3mujinpack HaldCLUT (MIT) baked with parametric ops | Accepted | 2026-11-11 |
+| D11 | multi-shot first exposure kept as one CPU bitmap (<= 3072 long side), not a GL texture: survives context loss, droppable on OOM/background, reusable for the ghost | Accepted | 2026-11-11 |
+| D12 | double exposure = screen blend in Pass 3 before glow/grain; first shot rendered without per-image effects so they run once | Accepted | 2026-11-11 |
+| D13 | half-frame = CPU diptych (0.72 halves, 0.015 S gap) fed through the normal graph; ratio forced 4:3 and ratio-forcing frames skipped while armed | Accepted | 2026-11-11 |
+| D14 | flash gel is a DataStore user setting, applied only if a flash fired (EXIF bit or screen flash); no presets.json change | Accepted | 2026-11-11 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |

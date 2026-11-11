@@ -38,6 +38,8 @@ class App : Application() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        // SPEC 7.4: nothing multi-shot stays in memory once the UI is hidden.
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) capturePipeline.clearFirst()
         @Suppress("DEPRECATION")
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             appScope.launch { offscreen.trim() }

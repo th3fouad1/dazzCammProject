@@ -618,6 +618,17 @@ Front lens with flash on: the UI implements CameraX `ImageCapture.ScreenFlash` (
 - Otherwise the keys keep their system behaviour (volume) on Licenses, PermissionGate and when the camera is not Ready.
 - A key-down shows the shutter's pressed state, so the user sees what happened.
 
+### 6.9 Capture modes (Sprint B3)
+Original controls; reach the modes from **More options** (the "⋯" menu in the top bar, or the controls sheet in Mini layout). No new top-bar button.
+- **More menu items** (in this order): `Double exposure: On/Off`, `Half-frame: On/Off`, `Flash gel: <name>` (each press cycles none › warm › red › blue › green and keeps the menu open), then `Open-source licenses`. Double exposure and Half-frame are mutually exclusive; choosing one disarms the other and discards any held first shot. The More lamp is lit while a mode or a gel is active.
+- **Progress chip** (top-start corner of the viewfinder slot, `raised` at 88 %, `labelValue`): `Double exposure 0/2` or `Half-frame 0/2` once armed; `… 1/2` after shot 1 is held, with a 44 dp `×` button (`Discard first shot`). Polite live region. The chip is the only new chrome.
+- **Ghost** (double exposure, shot 1 held): shot 1 shows at 50 % over the live preview (GL, Pass 4). Half-frame shows no ghost.
+- **Shutter** during shot-1 development shows the normal "Developing…" busy state; shot 2 is accepted only after shot 1 is stored. The thumbnail only changes after shot 2 saves.
+- **Locks**: while Half-frame is armed the ratio button is disabled (4:3 forced) and ratio-forcing frames are skipped; while a double-exposure first shot is held, ratio and frame are disabled.
+- **Flash gel dot**: an 8 dp dot in the gel colour at the top-end of the flash icon when the flash is on (back: On/Auto; front: screen flash) and a gel is selected. State text reads `On, Red gel`. The front screen-flash overlay is tinted 70 % toward the gel colour.
+- **Drop notice**: when a held first shot is lost (app backgrounded, memory trim, out of memory): snackbar and TalkBack announcement `First shot discarded.`; the chip returns to `0/2`.
+- Haptics and motion: no new haptics; the existing `Confirm` on save applies to shot 2 only.
+
 ---
 
 ## 7. Copy and string keys
@@ -752,6 +763,26 @@ Look display names are **approved as temporary working names**. They are string-
 | `cd_back` | Back |
 | `cd_expand` | Show license text |
 | `cd_collapse` | Hide license text |
+
+
+**Sprint B3 strings (capture modes)**
+
+| key | English |
+|---|---|
+| `menu_double_exposure` | Double exposure |
+| `menu_half_frame` | Half-frame |
+| `menu_toggle_state` | %1$s: %2$s |
+| `menu_flash_gel` | Flash gel: %1$s |
+| `state_on` / `state_off` | On / Off |
+| `state_flash_with_gel` | %1$s, %2$s gel |
+| `gel_none` / `gel_warm` / `gel_red` / `gel_blue` / `gel_green` | No gel / Warm / Red / Blue / Green |
+| `multi_chip_double` | Double exposure %1$d/2 |
+| `multi_chip_half` | Half-frame %1$d/2 |
+| `cd_multi_cancel` | Discard first shot |
+| `a11y_double_on` | Double exposure on. Take the first shot. |
+| `a11y_half_on` | Half-frame on. Take the first shot. |
+| `a11y_first_kept` | First shot kept. Take the second. |
+| `msg_first_dropped` | First shot discarded. |
 
 ---
 
