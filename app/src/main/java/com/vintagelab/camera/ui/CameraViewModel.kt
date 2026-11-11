@@ -263,9 +263,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 _state.update { it.copy(captureState = CaptureState.Error(e.message ?: e.javaClass.simpleName)) }
             }
             withContext(Dispatchers.Main) { refreshPreviewLook() }
-            delay(STATUS_MS)
-            _state.update {
-                if (it.captureState is CaptureState.Saved || it.captureState is CaptureState.Error) it.copy(captureState = CaptureState.Idle) else it
+            // The job ends here so the next shot is accepted immediately; the status clears on its own.
+            val shown = _state.value.captureState
+            app.appScope.launch {
+                delay(STATUS_MS)
+                _state.update { if (it.captureState === shown) it.copy(captureState = CaptureState.Idle) else it }
             }
         }
     }

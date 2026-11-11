@@ -1,5 +1,7 @@
 package com.vintagelab.camera.capture
 
+import android.system.Os
+import android.system.OsConstants
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayInputStream
 import java.io.FileDescriptor
@@ -46,6 +48,8 @@ object ExifWriter {
 
     /** Writes [attrs] into the JPEG behind a seekable read/write descriptor. */
     fun write(fd: FileDescriptor, attrs: Map<String, String>) {
+        // The JPEG was just written through this descriptor: rewind so ExifInterface parses from byte 0.
+        Os.lseek(fd, 0L, OsConstants.SEEK_SET)
         val exif = ExifInterface(fd)
         for ((k, v) in attrs) exif.setAttribute(k, v)
         exif.saveAttributes()
