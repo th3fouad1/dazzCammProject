@@ -44,6 +44,7 @@ private val SPECS = mapOf(
     "disposable" to SwatchSpec(0xFF2A2B33, 0xFF3B3A40, null, 0xFF1C1B1E, 0xFFF2D3B3, vignette = 0.55f, grain = 0.22f, coarse = true),
     "instant" to SwatchSpec(0xFFE9D8E4, 0xFFF4E6CF, 0xFFFFFDF5, 0xFFB9C3A9, 0xFF8E8A9A, grain = 0.06f, fade = 0.14f),
     "ccd" to SwatchSpec(0xFFA3C8EA, 0xFFE2EEF7, 0xFFFFFFFF, 0xFF4E6D73, 0xFF2D3E44, grain = 0.05f),
+    "ccd2" to SwatchSpec(0xFFE8D9A0, 0xFFC9D8A8, 0xFFFFF4D0, 0xFF5E7A3A, 0xFF3F4A2A, vignette = 0.1f, grain = 0.05f),
     "bw400" to SwatchSpec(0xFFDADADA, 0xFF7C7C7C, 0xFFFFFFFF, 0xFF2B2B2B, 0xFF111111, vignette = 0.35f, grain = 0.20f, coarse = true, mono = true),
     "fisheye" to SwatchSpec(0xFFF2B47C, 0xFF7FB4C9, 0xFFFFF6E2, 0xFF3C4A3A, null),
     "slide" to SwatchSpec(0xFF2F6FD0, 0xFF8FC4F0, 0xFFFFF3C0, 0xFF1F5A2A, 0xFFB5231B, vignette = 0.15f, grain = 0.05f),
@@ -151,7 +152,7 @@ private fun DrawScope.scene(s: SwatchSpec, lookId: String) {
         drawRect(c(s.ground), Offset(0f, h * 0.62f), Size(w, h * 0.38f))
     }
     s.sun?.let { drawCircle(c(it), w * 0.13f, Offset(w * 0.68f, h * 0.34f)) }
-    if (lookId == "ccd") drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.6f), Color.Transparent), Offset(w * 0.68f, h * 0.34f), w * 0.3f), w * 0.3f, Offset(w * 0.68f, h * 0.34f))
+    if (lookId == "ccd" || lookId == "ccd2") drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.6f), Color.Transparent), Offset(w * 0.68f, h * 0.34f), w * 0.3f), w * 0.3f, Offset(w * 0.68f, h * 0.34f))
     s.subject?.let {
         drawRoundRect(c(it), Offset(w * 0.18f, h * 0.70f), Size(w * 0.22f, h * 0.14f), CornerRadius(w * 0.07f))
     }
@@ -159,7 +160,7 @@ private fun DrawScope.scene(s: SwatchSpec, lookId: String) {
         val center = Offset(w * 0.3f, h * 0.75f)
         drawCircle(Brush.radialGradient(listOf(Color(0xFFFFF4E0).copy(alpha = 0.85f), Color.Transparent), center, w * 0.35f), w * 0.35f, center)
     }
-    if (lookId == "ccd") {
+    if (lookId == "ccd" || lookId == "ccd2") {
         for (i in 0 until 3) {
             drawRect(VlColors.Amber, Offset(w * (0.70f + i * 0.08f), h * (1f - 0.06f - 0.012f)), Size(w * 0.06f, h * 0.012f))
         }

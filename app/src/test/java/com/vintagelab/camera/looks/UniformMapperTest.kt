@@ -77,10 +77,10 @@ class UniformMapperTest {
     fun goldenToy120() {
         val toy = TestAssets.presets().first { it.id == "toy120" }
         val u = UniformMapper.map(toy, LookState(seed = 7L, frame = toy.defaultFrame, dateStampOn = false))
-        assertEquals(Vec4(0.7f, 0.7f, 0.5f, 1f), u.vignette)
+        assertEquals(Vec4(0.75f, 0.7f, 0.5f, 1f), u.vignette)
         assertEquals(0.3f, u.softFocus)
         assertEquals(Vec2(0.1f, 0f), u.distortion)
-        assertEquals(0.5f, u.leak.z)
+        assertEquals(0.6f, u.leak.z)
         assertEquals(5, u.frame)
         assertEquals(1f, u.lutStrength)
     }

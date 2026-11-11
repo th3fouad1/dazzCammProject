@@ -141,3 +141,25 @@ class CaptureBudgetTest {
         assertEquals(CaptureErrorKind.DevelopFailed, CapturePipeline.classify(IllegalStateException("GL")).kind)
     }
 }
+
+class LookLabelFitTest {
+    private fun names(file: String): List<String> =
+        Regex("""<string name="look_[a-z0-9_]+">([^<]+)</string>""")
+            .findAll(java.io.File(file).readText()).map { it.groupValues[1] }.toList()
+
+    @Test
+    fun everyLookName_fitsAtOrAboveMinSize_inEnAndFr() {
+        for (res in listOf("values", "values-fr")) {
+            val all = names("src/main/res/$res/strings.xml")
+            assertTrue(all.contains("Wide 35") && all.contains("Digi 2") && all.contains("Mono 100"))
+            for (n in all) {
+                val fs = labelFontSizeSp(n.length, LABEL_CARD_PORTRAIT_W - 8f - 10f)
+                assertTrue("$n shrinks below min", fs >= MIN_LABEL_SP)
+                // mono advance 0.6em + 0.12em tracking per glyph must fit the card at the chosen size
+                assertTrue("$n overflows portrait", n.length * fs * 0.72f <= LABEL_CARD_PORTRAIT_W - 8f - 10f)
+                val fl = labelFontSizeSp(n.length, LABEL_CARD_LANDSCAPE_W - 60f - 10f)
+                assertTrue("$n overflows landscape", n.length * fl * 0.72f <= LABEL_CARD_LANDSCAPE_W - 60f - 10f)
+            }
+        }
+    }
+}

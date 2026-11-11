@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.vintagelab.camera.R
 import com.vintagelab.camera.ui.theme.VlColors
 import com.vintagelab.camera.ui.theme.VlRadius
@@ -101,7 +102,7 @@ fun LookPicker(
     LaunchedEffect(selectedIndex, looks.size) { if (looks.isNotEmpty()) state.animateScrollToItem(selectedIndex) }
     SettleSelect(state, looks, touchExploration) { currentSelect(it) }
 
-    val cardMain: Dp = if (compact) 56.dp else 72.dp
+    val cardMain: Dp = if (compact) 56.dp else if (vertical) 72.dp else LABEL_CARD_PORTRAIT_W.dp
     BoxWithConstraints(modifier) {
         val extent = if (vertical) maxHeight else maxWidth
         val pad = ((extent - cardMain) / 2).coerceAtLeast(0.dp)
@@ -150,6 +151,14 @@ private fun SettleSelect(state: LazyListState, looks: List<LookUi>, touchExplora
     }
 }
 
+/** Mono glyph advance ~0.6 em plus 0.12 em tracking, with a safety margin; shrinks to [MIN_LABEL_SP], never ellipsised. */
+internal const val LABEL_CARD_PORTRAIT_W = 80f
+internal const val LABEL_CARD_LANDSCAPE_W = 128f
+internal const val MIN_LABEL_SP = 9f
+internal const val MAX_LABEL_SP = 11f
+internal fun labelFontSizeSp(chars: Int, availDp: Float): Float =
+    (availDp / (chars.coerceAtLeast(1) * 0.76f)).coerceIn(MIN_LABEL_SP, MAX_LABEL_SP)
+
 @Composable
 private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscape: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val name = lookName(look)
@@ -167,10 +176,11 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
         LookSwatch(look.id, base.size(56.dp).padding(4.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
         return
     }
-    val nameRow: @Composable () -> Unit = {
+    val nameRow: @Composable (Float) -> Unit = { availDp ->
+        val fs = labelFontSizeSp(name.length, availDp - if (selected) 10f else 0f)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                name.uppercase(), style = VlType.labelEngraved, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                name.uppercase(), style = VlType.labelEngraved.copy(fontSize = fs.sp), maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
                 color = if (selected) VlColors.Amber else VlColors.InkMuted, modifier = Modifier.weight(1f, fill = false),
             )
             if (selected) {
@@ -180,16 +190,16 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
         }
     }
     if (landscape) {
-        Row(base.size(88.dp, 72.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(base.size(LABEL_CARD_LANDSCAPE_W.dp, 72.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             LookSwatch(look.id, Modifier.size(48.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
             Spacer(Modifier.width(4.dp))
-            nameRow()
+            nameRow(LABEL_CARD_LANDSCAPE_W - 8f - 48f - 4f)
         }
     } else {
-        Column(base.size(72.dp, 88.dp).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(base.size(LABEL_CARD_PORTRAIT_W.dp, 88.dp).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             LookSwatch(look.id, Modifier.size(64.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
             Spacer(Modifier.size(4.dp))
-            nameRow()
+            nameRow(LABEL_CARD_PORTRAIT_W - 8f)
         }
     }
 }

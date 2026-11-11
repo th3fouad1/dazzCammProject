@@ -56,6 +56,7 @@ reproducing any specific third-party app's exact looks or UI.
 | `disposable` | Fuji Superia 400 | heavy grain, strong vignette, centre glow (flash-hot), soft focus |
 | `instant` | Fuji Pro 400H | faded, low contrast, default frame `instant_white` |
 | `ccd` | Kodak Ultra Max 400 | cool shift, sharpen, bloom, chroma noise, date stamp on by default |
+| `ccd2` | Fuji Superia 200 (0.6) | warmer/greener early-2000s digicam: temperature +0.08, tint -0.06, sharpen 0.6, bloom 0.25, chroma noise, low vignette, date stamp on by default |
 | `bw400` | Kodak Tri-X 400 | coarse grain, vignette |
 | `fisheye` | Kodak ColorPlus 200 | barrel distortion + circular mask |
 

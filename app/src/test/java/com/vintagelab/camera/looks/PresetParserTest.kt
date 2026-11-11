@@ -22,13 +22,15 @@ class PresetParserTest {
         val log = Rec()
         val presets = TestAssets.presets(log)
         assertEquals((log.warns + log.errors).toString(), 0, log.warns.size + log.errors.size)
-        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono", "pano"), presets.map { it.id })
+        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "ccd2", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono", "pano"), presets.map { it.id })
         for (p in presets) {
             val lut = p.lut
             if (lut != null) assertTrue("missing LUT $lut", TestAssets.file("luts/$lut.png").exists())
         }
         assertEquals(FrameId.INSTANT_WHITE, presets.first { it.id == "instant" }.defaultFrame)
         assertTrue(presets.first { it.id == "ccd" }.dateStamp.enabledByDefault)
+        assertTrue(presets.first { it.id == "ccd2" }.dateStamp.enabledByDefault)
+        assertEquals("fuji_superia_200", presets.first { it.id == "ccd2" }.lut)
         assertTrue(presets.first { it.id == "bw400" }.monochrome)
         assertTrue(presets.first { it.id == "fisheye" }.distortion.circularMask)
         assertEquals(FrameId.SLIDE_MOUNT, presets.first { it.id == "slide" }.defaultFrame)
@@ -52,10 +54,11 @@ class PresetParserTest {
         assertEquals(0.2f, premium.grain.amount)
         val toy = all.first { it.id == "toy120" }
         assertEquals("fuji_superia_200", toy.lut)
-        assertEquals(0.7f, toy.vignette.amount)
+        assertEquals(0.75f, toy.vignette.amount)
         assertEquals(VignetteShape.CIRCLE, toy.vignette.shape)
         assertEquals(0.3f, toy.softFocus)
-        assertEquals(0.7f, toy.lightLeak.probability)
+        assertEquals(0.85f, toy.lightLeak.probability)
+        assertEquals(0.6f, toy.lightLeak.amount)
         assertEquals(0.1f, toy.distortion.barrel)
         assertEquals("kodak_ektar_100", all.first { it.id == "tlr" }.lut)
         val sq = all.first { it.id == "square" }

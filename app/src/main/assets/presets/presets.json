@@ -320,6 +320,87 @@
       }
     },
     {
+      "id": "ccd2",
+      "displayNameRes": "look_ccd2",
+      "lut": "fuji_superia_200",
+      "lutStrength": 0.6,
+      "exposure": 0.1,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.0
+          ],
+          [
+            0.25,
+            0.22
+          ],
+          [
+            0.75,
+            0.8
+          ],
+          [
+            1,
+            1.0
+          ]
+        ]
+      },
+      "saturation": 1.2,
+      "temperature": 0.08,
+      "tint": -0.06,
+      "shadowTint": {
+        "color": "#1A3A5A",
+        "amount": 0.1
+      },
+      "highlightTint": {
+        "color": "#E8F4FF",
+        "amount": 0.06
+      },
+      "fade": 0.0,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.2,
+        "size": 0.0009,
+        "chroma": 0.8
+      },
+      "vignette": {
+        "amount": 0.08,
+        "radius": 1.1,
+        "softness": 0.6,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0,
+      "bloom": {
+        "amount": 0.25,
+        "threshold": 0.75
+      },
+      "sharpen": 0.6,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0,
+        "amount": 0,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0,
+      "defaultFrame": "none",
+      "dateStamp": {
+        "enabledByDefault": true,
+        "color": "#FF8A1F"
+      }
+    },
+    {
       "id": "bw400",
       "displayNameRes": "look_bw400",
       "lut": "kodak_tri_x_400",
@@ -658,7 +739,7 @@
         "chroma": 0.25
       },
       "vignette": {
-        "amount": 0.7,
+        "amount": 0.75,
         "radius": 0.7,
         "softness": 0.5,
         "shape": "circle"
@@ -678,8 +759,8 @@
         "circularMask": false
       },
       "lightLeak": {
-        "probability": 0.7,
-        "amount": 0.5,
+        "probability": 0.85,
+        "amount": 0.6,
         "variants": [
           0,
           1,

@@ -6,6 +6,7 @@
     <string name="look_disposable">Pocket</string>
     <string name="look_instant">Instant</string>
     <string name="look_ccd">Digi</string>
+    <string name="look_ccd2">Digi 2</string>
     <string name="look_bw400">Mono</string>
     <string name="look_fisheye">Bubble</string>
     <string name="look_slide">Chrome</string>

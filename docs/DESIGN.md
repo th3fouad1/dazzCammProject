@@ -690,6 +690,7 @@ Look display names are **approved as temporary working names**. They are string-
 | `look_disposable` | Pocket |
 | `look_instant` | Instant |
 | `look_ccd` | Digi |
+| `look_ccd2` | Digi 2 |
 | `look_bw400` | Mono |
 | `look_fisheye` | Bubble |
 | `cd_look_suffix` | %1$s look |
@@ -836,6 +837,7 @@ All user-visible text lives in `res/values/strings.xml` with a complete `res/val
 | `disposable` Pocket | `#2A2B33` → `#3B3A40` (night) | none | `#1C1B1E` | `#F2D3B3` with a hot centre glow `#FFF4E0` @ 0.85, r 0.35 at (0.3, 0.75) | vignette 0.55, grain 0.22 coarse, glow (flash-hot) |
 | `instant` Instant | `#E9D8E4` → `#F4E6CF` | `#FFFDF5` | `#B9C3A9` | `#8E8A9A` | fade 14 %, grain 0.06. The scene is inset into a `paper` `#F4F1EA` border (sides/top 6 %, bottom 22 %, matching SPEC §7.3) |
 | `ccd` Digi | `#A3C8EA` → `#E2EEF7` (cool) | `#FFFFFF` + bloom glow `#FFFFFF` @ 0.6, r 0.3 | `#4E6D73` | `#2D3E44` | a tiny 7-segment stamp: 3 amber `#FF8A1F` bars (each 0.06 × 0.012) at the bottom-right, inset 0.06; grain 0.05 with chroma (tint the noise blue at 30 %) |
+| `ccd2` Digi 2 | `#E8D9A0` → `#C9D8A8` (warm green) | `#FFF4D0` + bloom glow | `#5E7A3A` | `#3F4A2A` | same amber stamp as Digi; vignette 0.1, grain 0.05 |
 | `bw400` Mono | `#DADADA` → `#7C7C7C` | `#FFFFFF` | `#2B2B2B` | `#111111` | mono filter, vignette 0.35, grain 0.20 coarse |
 | `fisheye` Bubble | `#F2B47C` → `#7FB4C9` | `#FFF6E2` | `#3C4A3A`, horizon drawn as an **arc** (quadratic, control y 0.50) | none | circular mask r 0.48 on a `bench` `#0E0D0C` field, plus a 1 dp `#FFFFFF` rim highlight @ 20 % |
 | `slide` Chrome | `#2F6FD0` -> `#8FC4F0` | `#FFF3C0` | `#1F5A2A` | `#B5231B` | vignette 0.15, grain 0.05, inside a `slide_mount` card (`#EDE9DF`, border 0.12, window radius 0.03) |
