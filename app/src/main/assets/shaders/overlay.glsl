@@ -6,8 +6,13 @@ uniform float uShortSide;   // S, px (image area)
 uniform vec2 uCanvasSize;   // px
 uniform vec4 uImageRect;    // canvas uv, y down
 uniform float uFlipY;
-uniform int uFrame;         // 0 none, 1 instant_white, 2 film_strip
+uniform int uFrame;         // 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount
 uniform vec3 uFrameColor;   // instant paper colour
+uniform vec3 uMountColor;   // slide_mount card colour
+uniform vec3 uFilmColor;    // film120 border colour
+uniform vec4 uTicks;        // film120 (pitch, w, h, border) in S
+uniform vec4 uMount;        // slide_mount (window radius, shadow blur, shadow strength, -) in S
+uniform vec2 uMountShadowOff; // slide_mount shadow offset in S
 uniform vec4 uSprocket;     // (pitch, w, h, radius) in S
 uniform vec2 uStampGeom;    // (inset, capHeight) in S
 uniform vec4 uStampColor;
@@ -74,8 +79,32 @@ vec3 drawStamp(vec3 c, vec2 ip, vec2 rs) {
     return clamp(c, 0.0, 1.0);
 }
 
+float sdRoundBox(vec2 p, vec2 h, float r) {
+    vec2 q = abs(p) - h + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// film120: light-grey frame-number tick marks centred in the bottom border (longer tick every 4th).
+vec3 film120Color(vec2 px, vec2 ip, vec2 rs) {
+    float S = uShortSide;
+    vec3 c = uFilmColor;
+    if (ip.y < rs.y) return c;
+    float band = uTicks.w * S;
+    float cy = rs.y + band * 0.5;
+    float pitch = uTicks.x * S;
+    float k = floor(ip.x / pitch);
+    float cx = (k + 0.5) * pitch;
+    float tall = mod(k, 4.0) == 0.0 ? 1.6 : 1.0;
+    vec2 h = vec2(uTicks.y, uTicks.z * tall) * 0.5 * S;
+    float d = sdBox(ip, vec2(cx, cy), h);
+    float m = (1.0 - smoothstep(-0.75, 0.75, d)) * step(0.0, ip.x) * step(ip.x, rs.x);
+    return mix(c, vec3(0.62), m);
+}
+
 vec3 frameColor(vec2 px, vec2 ip, vec2 rs) {
-    if (uFrame == 1) return uFrameColor;
+    if (uFrame == 1 || uFrame == 3 || uFrame == 4) return uFrameColor;
+    if (uFrame == 5) return film120Color(px, ip, rs);
+    if (uFrame == 6) return uMountColor;
     if (uFrame == 2) {
         float S = uShortSide;
         float band = uImageRect.y * uCanvasSize.y;
@@ -101,6 +130,18 @@ void main() {
     if (ip.x >= 0.0 && ip.y >= 0.0 && ip.x < rs.x && ip.y < rs.y) {
         vec2 iuv = ip / rs;
         c = texture(uInput, vec2(iuv.x, 1.0 - iuv.y)).rgb;
+        if (uFrame == 6) {
+            // Rounded window: mount colour outside it, soft drop shadow cast by the mount inside it.
+            float S = uShortSide;
+            vec2 p = ip - 0.5 * rs;
+            float r = uMount.x * S;
+            float dw = sdRoundBox(p, 0.5 * rs, r);
+            float blur = uMount.y * S;
+            float ds = sdRoundBox(p - uMountShadowOff * S, 0.5 * rs, r);
+            float sh = smoothstep(-blur, blur, ds) * uMount.z;
+            c *= 1.0 - sh;
+            c = mix(c, uMountColor, smoothstep(-0.75, 0.75, dw));
+        }
     } else {
         c = frameColor(px, ip, rs);
     }

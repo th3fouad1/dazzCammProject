@@ -194,9 +194,10 @@ class GlPreviewRenderer(
         val bufW = cam.resolution.width
         val bufH = cam.resolution.height
         val c = info.cropRect
-        val crop = IntRect(c.left, c.top, c.right, c.bottom)
+        var crop = IntRect(c.left, c.top, c.right, c.bottom)
         if (crop.width <= 0 || crop.height <= 0) return
         val rotation = ((info.rotationDegrees % 360) + 360) % 360
+        crop = FrameGeometry.constrainCrop(crop, rotation, lk.state.frame)
         val transform = SourceTransform(bufW, bufH, crop, rotation, info.isMirroring)
 
         // Render size = min(view, stream); canvas (image + frame) fitted into the view.

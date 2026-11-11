@@ -462,6 +462,462 @@
         "enabledByDefault": false,
         "color": "#FF8A1F"
       }
+    },
+    {
+      "id": "slide",
+      "displayNameRes": "look_slide",
+      "lut": "fuji_velvia_50",
+      "lutStrength": 0.85,
+      "exposure": 0.0,
+      "tone": {
+        "all": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            0.2
+          ],
+          [
+            0.75,
+            0.82
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "saturation": 1.2,
+      "temperature": -0.03,
+      "tint": 0.0,
+      "shadowTint": {
+        "color": "#1A2E4A",
+        "amount": 0.12
+      },
+      "fade": 0.0,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.12,
+        "size": 0.0012,
+        "chroma": 0.1
+      },
+      "vignette": {
+        "amount": 0.15,
+        "radius": 1.05,
+        "softness": 0.7,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0,
+      "bloom": {
+        "amount": 0,
+        "threshold": 0.8
+      },
+      "sharpen": 0.2,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0,
+        "amount": 0,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0.03,
+      "defaultFrame": "slide_mount",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
+    },
+    {
+      "id": "premium",
+      "displayNameRes": "look_premium",
+      "lut": "kodak_portra_400",
+      "lutStrength": 1.0,
+      "exposure": 0.1,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.03
+          ],
+          [
+            0.5,
+            0.53
+          ],
+          [
+            1,
+            0.98
+          ]
+        ]
+      },
+      "saturation": 0.95,
+      "temperature": 0.06,
+      "tint": 0.01,
+      "highlightTint": {
+        "color": "#FFE4D0",
+        "amount": 0.08
+      },
+      "fade": 0.05,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.2,
+        "size": 0.001,
+        "chroma": 0.1
+      },
+      "vignette": {
+        "amount": 0.12,
+        "radius": 1.05,
+        "softness": 0.8,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0.05,
+      "bloom": {
+        "amount": 0,
+        "threshold": 0.8
+      },
+      "sharpen": 0,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0,
+        "amount": 0,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0,
+      "defaultFrame": "none",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
+    },
+    {
+      "id": "toy120",
+      "displayNameRes": "look_toy120",
+      "lut": "fuji_superia_200",
+      "lutStrength": 1.0,
+      "exposure": 0.15,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.03
+          ],
+          [
+            0.25,
+            0.22
+          ],
+          [
+            0.75,
+            0.8
+          ],
+          [
+            1,
+            0.98
+          ]
+        ]
+      },
+      "saturation": 1.35,
+      "temperature": 0.1,
+      "tint": 0.0,
+      "shadowTint": {
+        "color": "#2A4A3A",
+        "amount": 0.1
+      },
+      "highlightTint": {
+        "color": "#FFE6B8",
+        "amount": 0.1
+      },
+      "fade": 0.04,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.35,
+        "size": 0.002,
+        "chroma": 0.25
+      },
+      "vignette": {
+        "amount": 0.7,
+        "radius": 0.7,
+        "softness": 0.5,
+        "shape": "circle"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0.3,
+      "bloom": {
+        "amount": 0.05,
+        "threshold": 0.8
+      },
+      "sharpen": 0,
+      "distortion": {
+        "barrel": 0.1,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0.7,
+        "amount": 0.5,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0.2,
+      "defaultFrame": "film120",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
+    },
+    {
+      "id": "tlr",
+      "displayNameRes": "look_tlr",
+      "lut": "kodak_ektar_100",
+      "lutStrength": 1.0,
+      "exposure": 0.05,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.02
+          ],
+          [
+            0.25,
+            0.21
+          ],
+          [
+            0.75,
+            0.8
+          ],
+          [
+            1,
+            0.98
+          ]
+        ]
+      },
+      "saturation": 1.1,
+      "temperature": 0.03,
+      "tint": 0.0,
+      "highlightTint": {
+        "color": "#FFF0D8",
+        "amount": 0.06
+      },
+      "fade": 0.02,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.2,
+        "size": 0.001,
+        "chroma": 0.15
+      },
+      "vignette": {
+        "amount": 0.2,
+        "radius": 1.0,
+        "softness": 0.7,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0,
+      "bloom": {
+        "amount": 0,
+        "threshold": 0.8
+      },
+      "sharpen": 0.1,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0.1,
+        "amount": 0.25,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0.05,
+      "defaultFrame": "film120",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
+    },
+    {
+      "id": "square",
+      "displayNameRes": "look_square",
+      "lut": "fuji_provia_100f",
+      "lutStrength": 1.0,
+      "exposure": 0.1,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.06
+          ],
+          [
+            0.5,
+            0.52
+          ],
+          [
+            1,
+            0.95
+          ]
+        ]
+      },
+      "saturation": 0.95,
+      "temperature": 0.12,
+      "tint": 0.02,
+      "shadowTint": {
+        "color": "#3A5A6A",
+        "amount": 0.1
+      },
+      "highlightTint": {
+        "color": "#FFD9A0",
+        "amount": 0.2
+      },
+      "fade": 0.2,
+      "monochrome": false,
+      "grain": {
+        "amount": 0.15,
+        "size": 0.0014,
+        "chroma": 0.1
+      },
+      "vignette": {
+        "amount": 0.2,
+        "radius": 1.0,
+        "softness": 0.7,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0.08,
+      "bloom": {
+        "amount": 0,
+        "threshold": 0.8
+      },
+      "sharpen": 0,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0.15,
+        "amount": 0.3,
+        "variants": [
+          1,
+          3
+        ]
+      },
+      "dust": 0.05,
+      "defaultFrame": "instant_square",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
+    },
+    {
+      "id": "fine_mono",
+      "displayNameRes": "look_fine_mono",
+      "lut": "ilford_delta_100",
+      "lutStrength": 1.0,
+      "exposure": 0.0,
+      "tone": {
+        "all": [
+          [
+            0,
+            0.02
+          ],
+          [
+            0.25,
+            0.15
+          ],
+          [
+            0.75,
+            0.88
+          ],
+          [
+            1,
+            0.98
+          ]
+        ]
+      },
+      "saturation": 1.0,
+      "temperature": 0,
+      "tint": 0,
+      "fade": 0.02,
+      "monochrome": true,
+      "grain": {
+        "amount": 0.15,
+        "size": 0.0008,
+        "chroma": 0
+      },
+      "vignette": {
+        "amount": 0.15,
+        "radius": 1.0,
+        "softness": 0.7,
+        "shape": "oval"
+      },
+      "centerGlow": {
+        "amount": 0,
+        "radius": 0.5
+      },
+      "softFocus": 0,
+      "bloom": {
+        "amount": 0,
+        "threshold": 0.8
+      },
+      "sharpen": 0.2,
+      "distortion": {
+        "barrel": 0,
+        "circularMask": false
+      },
+      "lightLeak": {
+        "probability": 0,
+        "amount": 0,
+        "variants": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "dust": 0.05,
+      "defaultFrame": "none",
+      "dateStamp": {
+        "enabledByDefault": false,
+        "color": "#FF8A1F"
+      }
     }
   ]
 }

@@ -180,6 +180,10 @@ fun FrameButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
         FrameId.NONE -> VlIcons.FrameNone to R.string.state_frame_none
         FrameId.INSTANT_WHITE -> VlIcons.FrameInstant to R.string.state_frame_instant
         FrameId.FILM_STRIP -> VlIcons.FrameStrip to R.string.state_frame_strip
+        FrameId.INSTANT_SQUARE -> VlIcons.FrameInstant to R.string.state_frame_instant_square
+        FrameId.INSTANT_MINI -> VlIcons.FrameInstant to R.string.state_frame_instant_mini
+        FrameId.FILM_120 -> VlIcons.FrameStrip to R.string.state_frame_film120
+        FrameId.SLIDE_MOUNT -> VlIcons.FrameInstant to R.string.state_frame_slide_mount
     }
     ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, icon = icon) {
         onIntent(CameraIntent.SetFrame(FrameId.entries[(s.frame.ordinal + 1) % FrameId.entries.size]))

@@ -62,7 +62,9 @@ data class LightLeakSpec(
 )
 
 enum class FrameId(val id: String, val code: Int) {
-    NONE("none", 0), INSTANT_WHITE("instant_white", 1), FILM_STRIP("film_strip", 2);
+    NONE("none", 0), INSTANT_WHITE("instant_white", 1), FILM_STRIP("film_strip", 2),
+    INSTANT_SQUARE("instant_square", 3), INSTANT_MINI("instant_mini", 4),
+    FILM_120("film120", 5), SLIDE_MOUNT("slide_mount", 6);
 
     companion object {
         fun fromId(id: String): FrameId? = entries.firstOrNull { it.id == id }

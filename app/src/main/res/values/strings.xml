@@ -8,6 +8,12 @@
     <string name="look_ccd">Digi</string>
     <string name="look_bw400">Mono</string>
     <string name="look_fisheye">Bubble</string>
+    <string name="look_slide">Chrome</string>
+    <string name="look_premium">Pastel</string>
+    <string name="look_toy120">Toy</string>
+    <string name="look_tlr">Twin</string>
+    <string name="look_square">Square</string>
+    <string name="look_fine_mono">Mono 100</string>
     <string name="cd_look_suffix">%1$s look</string>
     <string name="cd_viewfinder">Viewfinder, %1$s look</string>
     <string name="cd_look_chip">Look: %1$s. Show looks and controls</string>
@@ -34,6 +40,10 @@
     <string name="state_frame_none">None</string>
     <string name="state_frame_instant">Instant border</string>
     <string name="state_frame_strip">Film strip</string>
+    <string name="state_frame_instant_square">Square border</string>
+    <string name="state_frame_instant_mini">Mini border</string>
+    <string name="state_frame_film120">Roll film</string>
+    <string name="state_frame_slide_mount">Slide mount</string>
     <string name="cd_date_stamp">Date stamp</string>
     <string name="cd_more">More options</string>
     <string name="menu_licenses">Open-source licenses</string>

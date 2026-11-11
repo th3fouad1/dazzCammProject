@@ -120,12 +120,13 @@ class CapturePipeline(
         val sx = bitmap.width.toFloat() / input.width
         val sy = bitmap.height.toFloat() / input.height
         val c = input.cropRect
-        val crop = IntRect(
+        var crop = IntRect(
             (c.left * sx).toInt().coerceIn(0, bitmap.width - 1),
             (c.top * sy).toInt().coerceIn(0, bitmap.height - 1),
             (c.right * sx).toInt().coerceIn(1, bitmap.width),
             (c.bottom * sy).toInt().coerceIn(1, bitmap.height),
         )
+        crop = FrameGeometry.constrainCrop(crop, input.rotationDegrees, settings.state.frame)
         // Saved photos are never mirrored (SPEC §6.3).
         val transform = SourceTransform(bitmap.width, bitmap.height, crop, input.rotationDegrees, mirror = false)
         return try {

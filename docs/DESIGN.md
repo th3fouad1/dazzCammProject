@@ -784,6 +784,12 @@ Look display names are **approved as temporary working names**. They are string-
 | `ccd` Digi | `#A3C8EA` → `#E2EEF7` (cool) | `#FFFFFF` + bloom glow `#FFFFFF` @ 0.6, r 0.3 | `#4E6D73` | `#2D3E44` | a tiny 7-segment stamp: 3 amber `#FF8A1F` bars (each 0.06 × 0.012) at the bottom-right, inset 0.06; grain 0.05 with chroma (tint the noise blue at 30 %) |
 | `bw400` Mono | `#DADADA` → `#7C7C7C` | `#FFFFFF` | `#2B2B2B` | `#111111` | mono filter, vignette 0.35, grain 0.20 coarse |
 | `fisheye` Bubble | `#F2B47C` → `#7FB4C9` | `#FFF6E2` | `#3C4A3A`, horizon drawn as an **arc** (quadratic, control y 0.50) | none | circular mask r 0.48 on a `bench` `#0E0D0C` field, plus a 1 dp `#FFFFFF` rim highlight @ 20 % |
+| `slide` Chrome | `#2F6FD0` -> `#8FC4F0` | `#FFF3C0` | `#1F5A2A` | `#B5231B` | vignette 0.15, grain 0.05, inside a `slide_mount` card (`#EDE9DF`, border 0.12, window radius 0.03) |
+| `premium` Pastel | `#F3DCCB` -> `#F8EBDD` | `#FFFAF0` | `#BFB59E` | `#D9A58B` | fade 5 %, vignette 0.10, grain 0.08 fine |
+| `toy120` Toy | `#E8A04A` -> `#4FA3B8` | `#FFE9A8` | `#2E5A3A` | `#D2432F` | vignette 0.7 (circle-ish), centre glow 0.35, grain 0.14, `film120` black border 0.05 with four grey ticks |
+| `tlr` Twin | `#2B7AC0` -> `#A9D6EE` | `#FFF4D8` | `#3B6B2E` | `#C4381F` | vignette 0.2, grain 0.08, `film120` border with ticks |
+| `square` Square | `#D9B98C` -> `#EBD3B0` | `#FFF0C8` | `#8A8F70` | `#5C6A74` | fade 20 %, grain 0.06, inset in a `paper` border (sides/top 7 %, bottom 24 %, matching `instant_square`) |
+| `fine_mono` Mono 100 | `#E6E6E6` -> `#8A8A8A` | `#FFFFFF` | `#1F1F1F` | `#0A0A0A` | mono filter, vignette 0.15, grain 0.06 fine (higher midtone contrast than `bw400`) |
 
 Rules:
 - Swatches never show leaks or dust, so they stay stable.

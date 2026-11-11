@@ -7,6 +7,6 @@
 - Usage plan: at build time (or the first load), resample each one to a 33^3 or 64^3 3D LUT and sample it in the uber shader with trilinear filtering.
 - Naming: film stock names (Kodak, Fuji, Ilford, Agfa) are trademarks of their owners. Use them only for internal file names, and give the presets our own display names in `presets.json`.
 
-Files fetched (9):
+Files fetched (15; 6 added 2026-11-11 for Sprint B2: Velvia 50, Provia 100F, Ektachrome 100 VS, Ektar 100, Superia 200, Delta 100):
 Kodak Gold 200, Fuji Superia 400, Fuji Pro 400H, Agfa Vista 200, Kodak Portra 400,
 Kodak ColorPlus 200, Kodak Ultra Max 400, Kodak Tri-X 400 (B&W), Ilford HP5 Plus 400 (B&W).

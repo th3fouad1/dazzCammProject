@@ -18,11 +18,11 @@ class PresetParserTest {
     private fun parse(text: String, log: PresetLog = PresetLog.Silent) = PresetParser.parse(text, log)
 
     @Test
-    fun shippedFile_isValid_withSixLooks() {
+    fun shippedFile_isValid_withTwelveLooks() {
         val log = Rec()
         val presets = TestAssets.presets(log)
         assertEquals((log.warns + log.errors).toString(), 0, log.warns.size + log.errors.size)
-        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "bw400", "fisheye"), presets.map { it.id })
+        assertEquals(listOf("classic35", "disposable", "instant", "ccd", "bw400", "fisheye", "slide", "premium", "toy120", "tlr", "square", "fine_mono"), presets.map { it.id })
         for (p in presets) {
             val lut = p.lut
             if (lut != null) assertTrue("missing LUT $lut", TestAssets.file("luts/$lut.png").exists())
@@ -31,6 +31,39 @@ class PresetParserTest {
         assertTrue(presets.first { it.id == "ccd" }.dateStamp.enabledByDefault)
         assertTrue(presets.first { it.id == "bw400" }.monochrome)
         assertTrue(presets.first { it.id == "fisheye" }.distortion.circularMask)
+        assertEquals(FrameId.SLIDE_MOUNT, presets.first { it.id == "slide" }.defaultFrame)
+        assertEquals(FrameId.FILM_120, presets.first { it.id == "toy120" }.defaultFrame)
+        assertEquals(FrameId.FILM_120, presets.first { it.id == "tlr" }.defaultFrame)
+        assertEquals(FrameId.INSTANT_SQUARE, presets.first { it.id == "square" }.defaultFrame)
+        assertTrue(presets.first { it.id == "fine_mono" }.monochrome)
+        for (id in listOf("slide", "premium", "toy120", "tlr", "square", "fine_mono")) {
+            assertEquals("look_$id", presets.first { it.id == id }.displayNameRes)
+        }
+    }
+
+    @Test
+    fun newLooks_matchBrief() {
+        val all = TestAssets.presets()
+        val slide = all.first { it.id == "slide" }
+        assertEquals("fuji_velvia_50", slide.lut)
+        assertEquals(0.85f, slide.lutStrength)
+        val premium = all.first { it.id == "premium" }
+        assertEquals("kodak_portra_400", premium.lut)
+        assertEquals(0.2f, premium.grain.amount)
+        val toy = all.first { it.id == "toy120" }
+        assertEquals("fuji_superia_200", toy.lut)
+        assertEquals(0.7f, toy.vignette.amount)
+        assertEquals(VignetteShape.CIRCLE, toy.vignette.shape)
+        assertEquals(0.3f, toy.softFocus)
+        assertEquals(0.7f, toy.lightLeak.probability)
+        assertEquals(0.1f, toy.distortion.barrel)
+        assertEquals("kodak_ektar_100", all.first { it.id == "tlr" }.lut)
+        val sq = all.first { it.id == "square" }
+        assertEquals("fuji_provia_100f", sq.lut)
+        assertEquals(0.2f, sq.fade)
+        assertEquals("ilford_delta_100", all.first { it.id == "fine_mono" }.lut)
+        // temperature scale is +-0.25 t, so every look stays within +-0.25
+        for (p in all) assertTrue("${p.id} temperature", kotlin.math.abs(p.temperature) <= 0.25f)
     }
 
     @Test

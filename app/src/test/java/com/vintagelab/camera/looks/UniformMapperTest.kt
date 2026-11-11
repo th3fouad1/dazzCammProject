@@ -72,4 +72,22 @@ class UniformMapperTest {
         assertEquals(665, layout.canvasH - layout.imageTop - layout.imageH) // 0.22 S
         assertEquals(181, layout.imageLeft) // 0.06 S
     }
+
+    @Test
+    fun goldenToy120() {
+        val toy = TestAssets.presets().first { it.id == "toy120" }
+        val u = UniformMapper.map(toy, LookState(seed = 7L, frame = toy.defaultFrame, dateStampOn = false))
+        assertEquals(Vec4(0.7f, 0.7f, 0.5f, 1f), u.vignette)
+        assertEquals(0.3f, u.softFocus)
+        assertEquals(Vec2(0.1f, 0f), u.distortion)
+        assertEquals(0.5f, u.leak.z)
+        assertEquals(5, u.frame)
+        assertEquals(1f, u.lutStrength)
+    }
+
+    @Test
+    fun frameCodes_areDistinct() {
+        assertEquals(FrameId.entries.size, FrameId.entries.map { it.code }.toSet().size)
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), FrameId.entries.map { it.code })
+    }
 }

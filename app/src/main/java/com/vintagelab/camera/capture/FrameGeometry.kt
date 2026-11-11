@@ -1,6 +1,8 @@
 package com.vintagelab.camera.capture
 
 import com.vintagelab.camera.looks.AspectRatio
+import com.vintagelab.camera.looks.CropMath
+import com.vintagelab.camera.looks.IntRect
 import com.vintagelab.camera.looks.FrameId
 import com.vintagelab.camera.looks.Vec4
 import kotlin.math.roundToInt
@@ -16,6 +18,33 @@ object FrameGeometry {
     const val INSTANT_BOTTOM = 0.22f
     const val INSTANT_COLOR = 0xF4F1EA
 
+    // instant_square
+    const val SQUARE_SIDE = 0.07f
+    const val SQUARE_TOP = 0.07f
+    const val SQUARE_BOTTOM = 0.24f
+
+    // instant_mini (image aspect w/h = 0.76 in portrait)
+    const val MINI_ASPECT = 0.76f
+    const val MINI_SIDE = 0.06f
+    const val MINI_TOP = 0.06f
+    const val MINI_BOTTOM = 0.18f
+
+    // film120: black border, square image, frame-number ticks along the bottom border
+    const val F120_BORDER = 0.05f
+    const val F120_TICK_PITCH = 0.12f
+    const val F120_TICK_W = 0.010f
+    const val F120_TICK_H = 0.016f
+    const val F120_COLOR = 0x0B0B0B
+
+    // slide_mount: card mount with rounded window and inner drop shadow
+    const val MOUNT_BORDER = 0.12f
+    const val MOUNT_RADIUS = 0.03f
+    const val MOUNT_COLOR = 0xEDE9DF
+    const val MOUNT_SHADOW_OFFSET_X = 0.006f
+    const val MOUNT_SHADOW_OFFSET_Y = 0.010f
+    const val MOUNT_SHADOW_BLUR = 0.012f
+    const val MOUNT_SHADOW_STRENGTH = 0.30f
+
     // film_strip
     const val STRIP_BORDER = 0.08f
     const val SPROCKET_PITCH = 0.06f
@@ -30,9 +59,26 @@ object FrameGeometry {
     /** Reference short side for resolution-independent UI geometry. */
     private const val REF_SHORT = 3000
 
+    /**
+     * Image aspect (w/h) forced by [frame], or null if the frame follows the capture ratio.
+     * Square frames are 1:1; the mini frame is [MINI_ASPECT] in portrait and its inverse in landscape.
+     * Both render paths crop to this via `CropMath.constrainToAspect` (SPEC 7.3).
+     */
+    fun forcedAspect(frame: FrameId, imagePortrait: Boolean): Float? = when (frame) {
+        FrameId.INSTANT_SQUARE, FrameId.FILM_120 -> 1f
+        FrameId.INSTANT_MINI -> if (imagePortrait) MINI_ASPECT else 1f / MINI_ASPECT
+        else -> null
+    }
+
     private fun refLayout(ratio: AspectRatio, frame: FrameId, imagePortrait: Boolean): FrameLayout {
-        val long = REF_SHORT * ratio.long / ratio.short
-        val (w, h) = if (imagePortrait) REF_SHORT to long else long to REF_SHORT
+        val forced = forcedAspect(frame, imagePortrait)
+        val (w, h) = if (forced != null) {
+            if (forced >= 1f) (REF_SHORT * forced).roundToInt() to REF_SHORT
+            else REF_SHORT to (REF_SHORT / forced).roundToInt()
+        } else {
+            val long = REF_SHORT * ratio.long / ratio.short
+            if (imagePortrait) REF_SHORT to long else long to REF_SHORT
+        }
         return layout(frame, w, h)
     }
 
@@ -64,6 +110,18 @@ object FrameGeometry {
         }
     }
 
+    /** Applies the frame's forced aspect (if any) to a source crop, for preview and capture alike. */
+    fun constrainCrop(crop: IntRect, rotationDegrees: Int, frame: FrameId): IntRect {
+        val swaps = rotationDegrees == 90 || rotationDegrees == 270
+        val uw = if (swaps) crop.height else crop.width
+        val uh = if (swaps) crop.width else crop.height
+        val aspect = forcedAspect(frame, uh >= uw) ?: return crop
+        return CropMath.constrainToAspect(crop, rotationDegrees, aspect)
+    }
+
+    private fun bordered(frame: FrameId, imageW: Int, imageH: Int, side: Int, top: Int, bottom: Int) =
+        FrameLayout(frame, imageW + 2 * side, imageH + top + bottom, side, top, imageW, imageH)
+
     /**
      * Canvas layout for an image of [imageW]×[imageH] pixels.
      * Borders are rounded to whole pixels; the image area is never resampled.
@@ -79,6 +137,10 @@ object FrameGeometry {
                 val bottom = px(INSTANT_BOTTOM)
                 FrameLayout(frame, imageW + 2 * side, imageH + top + bottom, side, top, imageW, imageH)
             }
+            FrameId.INSTANT_SQUARE -> bordered(frame, imageW, imageH, px(SQUARE_SIDE), px(SQUARE_TOP), px(SQUARE_BOTTOM))
+            FrameId.INSTANT_MINI -> bordered(frame, imageW, imageH, px(MINI_SIDE), px(MINI_TOP), px(MINI_BOTTOM))
+            FrameId.FILM_120 -> px(F120_BORDER).let { bordered(frame, imageW, imageH, it, it, it) }
+            FrameId.SLIDE_MOUNT -> px(MOUNT_BORDER).let { bordered(frame, imageW, imageH, it, it, it) }
             FrameId.FILM_STRIP -> {
                 val b = px(STRIP_BORDER)
                 FrameLayout(frame, imageW, imageH + 2 * b, 0, b, imageW, imageH)

@@ -37,6 +37,30 @@ object CropMath {
         return IntRect(l, t, l + w, t + h)
     }
 
+    /**
+     * Shrinks [crop] (buffer pixels, centred) so that its **upright** aspect (width/height after
+     * [rotationDegrees]) equals [aspect]. Used by frames that force a ratio (SPEC 7.3); applied
+     * identically to the preview crop and the capture crop so both paths frame the same pixels.
+     */
+    fun constrainToAspect(crop: IntRect, rotationDegrees: Int, aspect: Float): IntRect {
+        val swaps = rotationDegrees == 90 || rotationDegrees == 270
+        val uw = if (swaps) crop.height else crop.width
+        val uh = if (swaps) crop.width else crop.height
+        var nw = uw
+        var nh = (uw / aspect).roundToInt()
+        if (nh > uh) {
+            nh = uh
+            nw = (uh * aspect).roundToInt()
+        }
+        nw = nw.coerceIn(1, uw)
+        nh = nh.coerceIn(1, uh)
+        val bw = if (swaps) nh else nw
+        val bh = if (swaps) nw else nh
+        val l = crop.left + (crop.width - bw) / 2
+        val t = crop.top + (crop.height - bh) / 2
+        return IntRect(l, t, l + bw, t + bh)
+    }
+
     /** Scale factor so that the long side of (w,h) is ≤ [maxLong] (never upscales). */
     fun capScale(w: Int, h: Int, maxLong: Int): Float {
         val long = maxOf(w, h)

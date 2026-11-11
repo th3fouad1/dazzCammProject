@@ -36,6 +36,7 @@ private data class SwatchSpec(
     val coarse: Boolean = false,
     val mono: Boolean = false,
     val fade: Float = 0f,
+    val glow: Float = 0f,
 )
 
 private val SPECS = mapOf(
@@ -45,6 +46,12 @@ private val SPECS = mapOf(
     "ccd" to SwatchSpec(0xFFA3C8EA, 0xFFE2EEF7, 0xFFFFFFFF, 0xFF4E6D73, 0xFF2D3E44, grain = 0.05f),
     "bw400" to SwatchSpec(0xFFDADADA, 0xFF7C7C7C, 0xFFFFFFFF, 0xFF2B2B2B, 0xFF111111, vignette = 0.35f, grain = 0.20f, coarse = true, mono = true),
     "fisheye" to SwatchSpec(0xFFF2B47C, 0xFF7FB4C9, 0xFFFFF6E2, 0xFF3C4A3A, null),
+    "slide" to SwatchSpec(0xFF2F6FD0, 0xFF8FC4F0, 0xFFFFF3C0, 0xFF1F5A2A, 0xFFB5231B, vignette = 0.15f, grain = 0.05f),
+    "premium" to SwatchSpec(0xFFF3DCCB, 0xFFF8EBDD, 0xFFFFFAF0, 0xFFBFB59E, 0xFFD9A58B, vignette = 0.1f, grain = 0.08f, fade = 0.05f),
+    "toy120" to SwatchSpec(0xFFE8A04A, 0xFF4FA3B8, 0xFFFFE9A8, 0xFF2E5A3A, 0xFFD2432F, vignette = 0.7f, grain = 0.14f, glow = 0.35f),
+    "tlr" to SwatchSpec(0xFF2B7AC0, 0xFFA9D6EE, 0xFFFFF4D8, 0xFF3B6B2E, 0xFFC4381F, vignette = 0.2f, grain = 0.08f),
+    "square" to SwatchSpec(0xFFD9B98C, 0xFFEBD3B0, 0xFFFFF0C8, 0xFF8A8F70, 0xFF5C6A74, grain = 0.06f, fade = 0.2f),
+    "fine_mono" to SwatchSpec(0xFFE6E6E6, 0xFF8A8A8A, 0xFFFFFFFF, 0xFF1F1F1F, 0xFF0A0A0A, vignette = 0.15f, grain = 0.06f, mono = true),
 )
 
 private val FALLBACK = SwatchSpec(0xFF8A8A8A, 0xFF5A5A5A, 0xFFDDDDDD, 0xFF333333, 0xFF1A1A1A)
@@ -67,6 +74,30 @@ fun LookSwatch(lookId: String, modifier: Modifier = Modifier) {
                 drawRect(VlColors.Paper)
                 val side = size.width * 0.06f
                 inset(side, size.height * 0.06f, side, size.height * 0.22f) { scene(spec, lookId) }
+            }
+            "square" -> {
+                drawRect(VlColors.Paper)
+                val side = size.width * 0.07f
+                inset(side, size.height * 0.07f, side, size.height * 0.24f) { scene(spec, lookId) }
+            }
+            "toy120", "tlr" -> {
+                drawRect(Color(0xFF0B0B0B))
+                val b = size.width * 0.05f
+                inset(b) { scene(spec, lookId) }
+                val tickW = size.width * 0.010f
+                val tickH = size.height * 0.016f
+                for (i in 0 until 4) {
+                    drawRect(Color(0xFF9E9E9E), Offset(size.width * (0.12f * i + 0.06f) - tickW / 2, size.height - b / 2 - tickH / 2), Size(tickW, tickH))
+                }
+            }
+            "slide" -> {
+                val mount = Color(0xFFEDE9DF)
+                drawRect(mount)
+                val b = size.width * 0.12f
+                val win = Path().apply {
+                    addRoundRect(androidx.compose.ui.geometry.RoundRect(b, b, size.width - b, size.height - b, CornerRadius(size.width * 0.03f)))
+                }
+                clipPath(win) { inset(b) { scene(spec, lookId) } }
             }
             "fisheye" -> {
                 drawRect(VlColors.Bench)
@@ -113,6 +144,10 @@ private fun DrawScope.scene(s: SwatchSpec, lookId: String) {
         for (i in 0 until 3) {
             drawRect(VlColors.Amber, Offset(w * (0.70f + i * 0.08f), h * (1f - 0.06f - 0.012f)), Size(w * 0.06f, h * 0.012f))
         }
+    }
+    if (s.glow > 0f) {
+        val center = Offset(w * 0.5f, h * 0.5f)
+        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = s.glow), Color.Transparent), center, w * 0.4f), w * 0.4f, center)
     }
     if (s.fade > 0f) drawRect(Color.White, alpha = s.fade, blendMode = BlendMode.Screen)
     if (s.vignette > 0f) {

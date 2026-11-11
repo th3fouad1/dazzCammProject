@@ -56,6 +56,13 @@ reproducing any specific third-party app's exact looks or UI.
 | `bw400` | Kodak Tri-X 400 | coarse grain, vignette |
 | `fisheye` | Kodak ColorPlus 200 | barrel distortion + circular mask |
 
+| `slide` Chrome | Fuji Velvia 50 (0.85) | punchy slide, deep blacks, cool shadows, low grain, default frame `slide_mount` |
+| `premium` Pastel | Kodak Portra 400 | clean pastel skin tones, fine grain 0.2, soft vignette |
+| `toy120` Toy | Fuji Superia 200 | heavy circular vignette 0.7, soft focus 0.3, leak prob 0.7, saturated, barrel 0.1, frame `film120` |
+| `tlr` Twin | Kodak Ektar 100 | rich colour, fine grain, gentle vignette, frame `film120` |
+| `square` Square | Fuji Provia 100F | instant-square feel: fade 0.2, warm highlights, frame `instant_square` |
+| `fine_mono` Mono 100 | Ilford Delta 100 | smooth fine-grain B&W, high midtone contrast |
+
 Display names are our own string resources (film brand names are trademarks; used only in file names).
 Exact numbers live in `presets.json`; Appendix A gives `classic35`. A look is **accepted** when
 the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes a golden file.
@@ -258,7 +265,7 @@ Filename `IMG_yyyyMMdd_HHmmss_SSS.jpg`. `SAVE_FOLDER` is a constant in `StorageC
 | `distortion` | `{barrel:[0,1], circularMask:bool}` | 0 / false |
 | `lightLeak` | `{probability:[0,1], amount:[0,1], variants:[0..3]}` | probability 0 |
 | `dust` | [0,1] | 0 |
-| `defaultFrame` | `"none"\|"instant_white"\|"film_strip"` | none |
+| `defaultFrame` | `"none"\|"instant_white"\|"film_strip"\|"instant_square"\|"instant_mini"\|"film120"\|"slide_mount"` | none |
 | `dateStamp` | `{enabledByDefault:bool, color:"#RRGGBB"}` | false, #FF8A1F |
 
 Validation: out-of-range → clamp + WARN; duplicate/missing id → skip + ERROR; malformed JSON → built-in
@@ -285,6 +292,16 @@ only edits data and effect function bodies (`shaders/effects/<effect>.glsl`, con
 Drawn in Pass 4 in both paths (D6), geometry from `capture/FrameGeometry.kt` (S = short side of the cropped image):
 - `instant_white`: sides/top 0.06 S, bottom 0.22 S, canvas grows; colour #F4F1EA.
 - `film_strip`: 0.08 S black border top/bottom with sprocket holes (pitch 0.06 S, 0.03×0.04 S rounded rects).
+- `instant_square`: image forced 1:1; sides/top 0.07 S, bottom 0.24 S; colour #F4F1EA.
+- `instant_mini`: image forced to 0.76 (w/h) in portrait (1/0.76 in landscape); sides/top 0.06 S, bottom 0.18 S; #F4F1EA.
+- `film120`: image forced 1:1; 0.05 S near-black border; light-grey frame-number tick marks (0.010 x 0.016 S, pitch 0.12 S,
+  every 4th taller) centred in the bottom border; procedural rectangles, no font.
+- `slide_mount`: 0.12 S cream (#EDE9DF) mount on all sides, window corners rounded r = 0.03 S (image pixels outside the
+  rounded rect become mount colour), faint inner drop shadow (offset 0.006/0.010 S, blur 0.012 S, 30 %) cast onto the image.
+- Forced ratios (square, mini, film120): `FrameGeometry.constrainCrop` -> `CropMath.constrainToAspect` shrinks the centred
+  source crop to the forced upright aspect. It is applied to the CameraX crop rect in the preview renderer and to the
+  scaled crop in `CapturePipeline`, so both paths crop identically; `canvasAspect` ignores the ratio button for these frames.
+- Frame codes (`uFrame`): 0 none, 1 instant_white, 2 film_strip, 3 instant_square, 4 instant_mini, 5 film120, 6 slide_mount.
 - Date stamp: capture time, format `'yy MM dd`, bottom-right of the image area, inset 0.04 S, cap height 0.035 S,
   colour from preset, slight glow. Glyphs: procedural SDF 7-segment in the shader (no font asset).
 

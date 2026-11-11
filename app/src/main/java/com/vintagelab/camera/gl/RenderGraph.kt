@@ -239,7 +239,14 @@ class RenderGraph(
         p.set2f("uCanvasSize", u.canvasSize.x, u.canvasSize.y)
         val fc = FrameGeometry.INSTANT_COLOR
         p.set3f("uFrameColor", ((fc shr 16) and 0xFF) / 255f, ((fc shr 8) and 0xFF) / 255f, (fc and 0xFF) / 255f)
+        val mc = FrameGeometry.MOUNT_COLOR
+        p.set3f("uMountColor", ((mc shr 16) and 0xFF) / 255f, ((mc shr 8) and 0xFF) / 255f, (mc and 0xFF) / 255f)
+        val f1 = FrameGeometry.F120_COLOR
+        p.set3f("uFilmColor", ((f1 shr 16) and 0xFF) / 255f, ((f1 shr 8) and 0xFF) / 255f, (f1 and 0xFF) / 255f)
         p.set4f("uSprocket", FrameGeometry.SPROCKET_PITCH, FrameGeometry.SPROCKET_W, FrameGeometry.SPROCKET_H, FrameGeometry.SPROCKET_RADIUS)
+        p.set4f("uTicks", FrameGeometry.F120_TICK_PITCH, FrameGeometry.F120_TICK_W, FrameGeometry.F120_TICK_H, FrameGeometry.F120_BORDER)
+        p.set4f("uMount", FrameGeometry.MOUNT_RADIUS, FrameGeometry.MOUNT_SHADOW_BLUR, FrameGeometry.MOUNT_SHADOW_STRENGTH, 0f)
+        p.set2f("uMountShadowOff", FrameGeometry.MOUNT_SHADOW_OFFSET_X, FrameGeometry.MOUNT_SHADOW_OFFSET_Y)
         p.set2f("uStampGeom", FrameGeometry.STAMP_INSET, FrameGeometry.STAMP_CAP_HEIGHT)
     }
 
