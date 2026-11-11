@@ -64,7 +64,7 @@ fun CameraScreen(
     onAttach: () -> Unit,
     onDetach: () -> Unit,
     onScreenFlash: (androidx.camera.core.ImageCapture.ScreenFlash?) -> Unit,
-    onOpenLicenses: () -> Unit,
+    nav: CameraNav,
 ) {
     val context = LocalContext.current
     val res = LocalResources.current
@@ -144,20 +144,12 @@ fun CameraScreen(
         }
         onIntent(i)
     }
-    val openLastShot: () -> Unit = {
-        state.lastShot?.let { uri ->
-            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            try {
-                context.startActivity(intent)
-            } catch (e: ActivityNotFoundException) {
-                announce(res.getString(R.string.err_no_viewer))
-            }
-        }
-    }
+    // SPEC 6.8: the thumbnail opens our own viewer, not another app.
+    val openLastShot: () -> Unit = { state.lastShot?.let { uri -> nav.onGallery(uri) } }
 
     Box(Modifier.fillMaxSize().background(VlColors.Bench)) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            CameraLayout(state, onIntentUi, previewHost, onOpenLicenses, openLastShot)
+            CameraLayout(state, onIntentUi, previewHost, nav, openLastShot)
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom = 232.dp, start = 16.dp, end = 16.dp).widthIn(max = 560.dp)) {
             Snackbar(it, containerColor = VlColors.Raised, contentColor = VlColors.Ink)
@@ -173,7 +165,7 @@ fun CameraLayout(
     s: CameraUiState,
     onIntent: (CameraIntent) -> Unit,
     previewHost: PreviewHost,
-    onOpenLicenses: () -> Unit,
+    nav: CameraNav,
     openLastShot: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -191,26 +183,26 @@ fun CameraLayout(
         }
         if (!landscape) {
             Column(Modifier.fillMaxSize()) {
-                if (mode != LayoutMode.Mini) ControlBar(s, onIntent, onOpenLicenses, vertical = false, modifier = Modifier.fillMaxWidth().height(m.bar.dp).then(group(1f)))
+                if (mode != LayoutMode.Mini) ControlBar(s, onIntent, nav, vertical = false, modifier = Modifier.fillMaxWidth().height(m.bar.dp).then(group(1f)))
                 slot(Modifier.weight(1f).fillMaxWidth())
                 if (mode != LayoutMode.Mini) {
                     LookPicker(s.looks, s.lookId, vertical = false, compact = mode == LayoutMode.Compact, onSelect = { onIntent(CameraIntent.SelectLook(it)) },
                         modifier = Modifier.fillMaxWidth().height(m.carousel.dp).background(VlColors.Deck).then(group(5f)))
                     Deck(s, onIntent, m.shutterDp, vertical = false, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxWidth().height(m.deck.dp).then(group(6f)))
                 } else {
-                    MiniBar(s, onIntent, vertical = false, onOpenLicenses = onOpenLicenses, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxWidth().height(m.deck.dp).then(group(6f)))
+                    MiniBar(s, onIntent, vertical = false, nav = nav, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxWidth().height(m.deck.dp).then(group(6f)))
                 }
             }
         } else {
             Row(Modifier.fillMaxSize()) {
-                if (mode != LayoutMode.Mini) ControlBar(s, onIntent, onOpenLicenses, vertical = true, modifier = Modifier.fillMaxHeight().width(m.bar.dp).then(group(1f)))
+                if (mode != LayoutMode.Mini) ControlBar(s, onIntent, nav, vertical = true, modifier = Modifier.fillMaxHeight().width(m.bar.dp).then(group(1f)))
                 slot(Modifier.weight(1f).fillMaxHeight())
                 if (mode != LayoutMode.Mini) {
                     LookPicker(s.looks, s.lookId, vertical = true, compact = mode == LayoutMode.Compact, onSelect = { onIntent(CameraIntent.SelectLook(it)) },
                         modifier = Modifier.fillMaxHeight().width(m.carousel.dp).background(VlColors.Deck).then(group(5f)))
                     Deck(s, onIntent, m.shutterDp, vertical = true, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxHeight().width(m.deck.dp).then(group(6f)))
                 } else {
-                    MiniBar(s, onIntent, vertical = true, onOpenLicenses = onOpenLicenses, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxHeight().width(m.deck.dp).then(group(6f)))
+                    MiniBar(s, onIntent, vertical = true, nav = nav, onOpenLastShot = openLastShot, modifier = Modifier.fillMaxHeight().width(m.deck.dp).then(group(6f)))
                 }
             }
         }

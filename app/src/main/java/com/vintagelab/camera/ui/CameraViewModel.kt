@@ -59,7 +59,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.random.Random
 
-private val Context.settings: DataStore<Preferences> by preferencesDataStore(name = "camera_settings")
+internal val Context.settings: DataStore<Preferences> by preferencesDataStore(name = "camera_settings")
 
 /**
  * Single owner of camera UI state (SPEC §6.2) and of the look seed (SPEC §5.2).
@@ -126,6 +126,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             presets = repo
             val prefs = withContext(Dispatchers.IO) { app.settings.data.first() }
             val lastShot = withContext(Dispatchers.IO) { app.saver.newestOwn() }
+            app.keepNegatives = prefs[KEY_KEEP] ?: true
             val lookId = prefs[KEY_LOOK]?.takeIf { id -> repo.presets.any { it.id == id } } ?: repo.default.id
             val preset = repo.get(lookId)
             _state.update { s ->
@@ -139,6 +140,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     dateStamp = prefs[KEY_STAMP] ?: preset.dateStamp.enabledByDefault,
                     flashGel = prefs[KEY_GEL]?.let { g -> FlashGel.entries.firstOrNull { it.name == g } } ?: s.flashGel,
                     prism = prefs[KEY_PRISM]?.let { g -> PrismMode.entries.firstOrNull { it.name == g } } ?: s.prism,
+                    keepNegatives = prefs[KEY_KEEP] ?: true,
                     lastShot = s.lastShot ?: lastShot,
                 )
             }
@@ -199,6 +201,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 if (!MultiShotRules.canChangeMode(_state.value.multi)) return
                 applyMulti(MultiShotRules.cancel(_state.value.multi))
             }
+            CameraIntent.ToggleKeepNegatives -> {
+                _state.update { it.copy(keepNegatives = !it.keepNegatives) }
+                app.keepNegatives = _state.value.keepNegatives
+                persist()
+            }
             CameraIntent.CycleFlashGel -> {
                 _state.update { it.copy(flashGel = it.flashGel.next()) }
                 persist()
@@ -256,6 +263,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val needsRebind = (rotation % 2) != (displayRotation % 2)
         displayRotation = rotation
         if (needsRebind) rebindIfNeeded()
+    }
+
+    /** A photo was saved or deleted outside the camera (editor, gallery): re-read the newest one for the thumbnail. */
+    fun refreshLastShot() {
+        viewModelScope.launch {
+            val newest = withContext(Dispatchers.IO) { app.saver.newestOwn() }
+            _state.update { it.copy(lastShot = newest) }
+        }
     }
 
     /** K12 */
@@ -674,6 +689,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 p[KEY_STAMP] = s.dateStamp
                 p[KEY_GEL] = s.flashGel.name
                 p[KEY_PRISM] = s.prism.name
+                p[KEY_KEEP] = s.keepNegatives
             }
         }
     }
@@ -696,5 +712,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val KEY_STAMP = booleanPreferencesKey("dateStamp")
         val KEY_GEL = stringPreferencesKey("flashGel")
         val KEY_PRISM = stringPreferencesKey("prism")
+        val KEY_KEEP = booleanPreferencesKey("keepNegatives")
     }
 }

@@ -10,6 +10,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import com.vintagelab.camera.editor.EditorViewModel
+import com.vintagelab.camera.gallery.GalleryViewModel
 import com.vintagelab.camera.ui.AppRoot
 import com.vintagelab.camera.ui.CameraViewModel
 import com.vintagelab.camera.ui.Screen
@@ -17,12 +19,14 @@ import com.vintagelab.camera.ui.theme.VlTheme
 
 class MainActivity : ComponentActivity() {
     private val vm: CameraViewModel by viewModels()
+    private val editor: EditorViewModel by viewModels()
+    private val gallery: GalleryViewModel by viewModels()
     private var screen = Screen.Camera
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
-        setContent { VlTheme { AppRoot(vm) { screen = it } } }
+        setContent { VlTheme { AppRoot(vm, editor, gallery) { screen = it } } }
         updateDisplay()
     }
 

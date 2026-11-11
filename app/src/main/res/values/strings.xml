@@ -136,4 +136,33 @@
     <string name="lic_androidx">AndroidX / Jetpack libraries</string>
     <string name="lic_apache">Apache License 2.0</string>
     <string name="lic_androidx_notice">This app uses Android Jetpack libraries (Compose, CameraX, Lifecycle, DataStore, ExifInterface) and Kotlin libraries, licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0</string>
+    <!-- v1.1: import, editor, gallery, negatives -->
+    <string name="menu_import">Import photo</string>
+    <string name="menu_gallery">Gallery</string>
+    <string name="menu_keep_negatives">Keep negatives</string>
+    <string name="editor_title_import">Develop a photo</string>
+    <string name="editor_title_redevelop">Re-develop</string>
+    <string name="editor_save">Save</string>
+    <string name="editor_saving">Developing…</string>
+    <string name="editor_loading">Opening photo…</string>
+    <string name="editor_exposure">Exposure</string>
+    <string name="editor_temperature">Temperature</string>
+    <string name="editor_reset">Reset adjustments</string>
+    <string name="cd_editor_preview">Preview, %1$s look</string>
+    <string name="cd_prism">Prism lens</string>
+    <string name="label_prism" translatable="false">◇</string>
+    <string name="err_import_failed">Couldn\'t open that photo.</string>
+    <string name="err_negative_missing">The negative of this photo is no longer available.</string>
+    <string name="err_delete_failed">Couldn\'t delete the photo.</string>
+    <string name="err_no_gallery_app">No app can show your photos.</string>
+    <string name="msg_photo_deleted">Photo deleted</string>
+    <string name="gallery_title">Gallery</string>
+    <string name="gallery_empty_title">No photos here yet</string>
+    <string name="gallery_empty_body">Photos you take or develop in this app appear here. Photos from before a reinstall stay in your Photos app.</string>
+    <string name="gallery_open_photos">Open in Photos</string>
+    <string name="cd_photo_n">Photo %1$d</string>
+    <string name="viewer_position">%1$d of %2$d</string>
+    <string name="viewer_share">Share</string>
+    <string name="viewer_delete">Delete</string>
+    <string name="viewer_redevelop">Re-develop</string>
 </resources>

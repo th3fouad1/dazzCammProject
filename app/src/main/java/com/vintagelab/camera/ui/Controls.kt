@@ -208,18 +208,21 @@ fun RatioButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
     ) { onIntent(CameraIntent.SetRatio(AspectRatio.entries[(s.ratio.ordinal + 1) % AspectRatio.entries.size])) }
 }
 
+/** Icon and state-name string of a frame (shared by the camera and the editor). */
+fun frameIconAndName(f: FrameId): Pair<androidx.compose.ui.graphics.vector.ImageVector, Int> = when (f) {
+    FrameId.NONE -> VlIcons.FrameNone to R.string.state_frame_none
+    FrameId.INSTANT_WHITE -> VlIcons.FrameInstant to R.string.state_frame_instant
+    FrameId.FILM_STRIP -> VlIcons.FrameStrip to R.string.state_frame_strip
+    FrameId.INSTANT_SQUARE -> VlIcons.FrameInstant to R.string.state_frame_instant_square
+    FrameId.INSTANT_MINI -> VlIcons.FrameInstant to R.string.state_frame_instant_mini
+    FrameId.FILM_120 -> VlIcons.FrameStrip to R.string.state_frame_film120
+    FrameId.SLIDE_MOUNT -> VlIcons.FrameInstant to R.string.state_frame_slide_mount
+    FrameId.PANO_SPROCKET -> VlIcons.FrameStrip to R.string.state_frame_pano
+}
+
 @Composable
 fun FrameButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
-    val (icon, st) = when (s.frame) {
-        FrameId.NONE -> VlIcons.FrameNone to R.string.state_frame_none
-        FrameId.INSTANT_WHITE -> VlIcons.FrameInstant to R.string.state_frame_instant
-        FrameId.FILM_STRIP -> VlIcons.FrameStrip to R.string.state_frame_strip
-        FrameId.INSTANT_SQUARE -> VlIcons.FrameInstant to R.string.state_frame_instant_square
-        FrameId.INSTANT_MINI -> VlIcons.FrameInstant to R.string.state_frame_instant_mini
-        FrameId.FILM_120 -> VlIcons.FrameStrip to R.string.state_frame_film120
-        FrameId.SLIDE_MOUNT -> VlIcons.FrameInstant to R.string.state_frame_slide_mount
-        FrameId.PANO_SPROCKET -> VlIcons.FrameStrip to R.string.state_frame_pano
-    }
+    val (icon, st) = frameIconAndName(s.frame)
     ControlButton(stringResource(R.string.cd_frame), stringResource(st), s.frame != FrameId.NONE, enabled = CameraRules.frameEnabled(s), icon = icon) {
         onIntent(CameraIntent.SetFrame(CameraRules.nextFrame(s.frame, half = MultiShotRules.skipsForcedFrames(s.multi))))
     }
@@ -233,8 +236,16 @@ fun DateStampButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
     ) { onIntent(CameraIntent.ToggleDateStamp) }
 }
 
+/** Where the camera's menus lead (SPEC 6.7/6.8): licenses, the in-app gallery (optionally on one photo) and photo import. */
+@androidx.compose.runtime.Immutable
+class CameraNav(
+    val onLicenses: () -> Unit,
+    val onGallery: (android.net.Uri?) -> Unit,
+    val onImport: () -> Unit,
+)
+
 @Composable
-fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses: () -> Unit) {
+fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNav) {
     var expanded by remember { mutableStateOf(false) }
     val on = stringResource(R.string.toggle_on)
     val off = stringResource(R.string.toggle_off)
@@ -264,7 +275,13 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses:
                 text = { Text(stringResource(R.string.menu_flash_gel, stringResource(gelName(s.flashGel)))) },
                 onClick = { onIntent(CameraIntent.CycleFlashGel) },
             )
-            DropdownMenuItem(text = { Text(stringResource(R.string.menu_licenses)) }, onClick = { expanded = false; onOpenLicenses() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.menu_import)) }, onClick = { expanded = false; nav.onImport() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.menu_gallery)) }, onClick = { expanded = false; nav.onGallery(null) })
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_keep_negatives), if (s.keepNegatives) on else off)) },
+                onClick = { onIntent(CameraIntent.ToggleKeepNegatives) },
+            )
+            DropdownMenuItem(text = { Text(stringResource(R.string.menu_licenses)) }, onClick = { expanded = false; nav.onLicenses() })
         }
     }
 }
@@ -297,7 +314,7 @@ fun CaptureModeButtons(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
 
 /** T2 controls: top bar (portrait) or start rail (landscape). */
 @Composable
-fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicenses: () -> Unit, vertical: Boolean, modifier: Modifier = Modifier) {
+fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNav, vertical: Boolean, modifier: Modifier = Modifier) {
     val items: @Composable () -> Unit = {
         FlashButton(s, onIntent)
         TimerButton(s, onIntent)
@@ -309,13 +326,13 @@ fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, onOpenLicense
         Column(modifier.background(VlColors.Deck).padding(vertical = 8.dp), verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) {
             items()
             Spacer(Modifier.weight(1f))
-            MoreMenu(s, onIntent, onOpenLicenses)
+            MoreMenu(s, onIntent, nav)
         }
     } else {
         Row(modifier.background(VlColors.Deck).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             items()
             Spacer(Modifier.weight(1f))
-            MoreMenu(s, onIntent, onOpenLicenses)
+            MoreMenu(s, onIntent, nav)
         }
     }
 }
@@ -487,7 +504,7 @@ fun DevelopingLabelSimple(s: CameraUiState) {
 /** Mini mode: look chip, shutter, lens, ⋯ → Controls sheet (DESIGN §4.6). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolean, onOpenLicenses: () -> Unit, onOpenLastShot: () -> Unit, modifier: Modifier = Modifier) {
+fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolean, nav: CameraNav, onOpenLastShot: () -> Unit, modifier: Modifier = Modifier) {
     var sheet by remember { mutableStateOf(false) }
     val current = s.looks.firstOrNull { it.id == s.lookId }
     val chipCd = stringResource(R.string.cd_look_chip, lookName(current))
@@ -520,7 +537,17 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
             CaptureModeButtons(s, onIntent)
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) }
-                TextButton(onClick = { sheet = false; onOpenLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }
+                TextButton(onClick = { sheet = false; nav.onLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                TextButton(onClick = { sheet = false; nav.onImport() }) { Text(stringResource(R.string.menu_import), color = VlColors.Ink) }
+                TextButton(onClick = { sheet = false; nav.onGallery(null) }) { Text(stringResource(R.string.menu_gallery), color = VlColors.Ink) }
+                TextButton(onClick = { onIntent(CameraIntent.ToggleKeepNegatives) }) {
+                    Text(
+                        stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_keep_negatives), stringResource(if (s.keepNegatives) R.string.toggle_on else R.string.toggle_off)),
+                        color = VlColors.Ink,
+                    )
+                }
             }
         }
     }

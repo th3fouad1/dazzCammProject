@@ -64,4 +64,21 @@ class StringResourcesTest {
         assertEquals(listOf("en", "fr"), tags)
         assertTrue(File(res, "../AndroidManifest.xml").readText().contains("android:localeConfig=\"@xml/locales_config\""))
     }
+
+    @Test
+    fun importEditorGalleryAndNegativeStringsExistInBothLanguages() {
+        val en = load("values")
+        val fr = load("values-fr")
+        val keys = listOf(
+            "menu_import", "menu_gallery", "menu_keep_negatives", "editor_title_import", "editor_title_redevelop", "editor_save",
+            "editor_saving", "editor_loading", "editor_exposure", "editor_temperature", "editor_reset", "cd_editor_preview",
+            "err_import_failed", "err_negative_missing", "err_delete_failed", "msg_photo_deleted", "gallery_title",
+            "gallery_empty_title", "gallery_empty_body", "gallery_open_photos", "viewer_share", "viewer_delete", "viewer_redevelop",
+        )
+        for (k in keys) {
+            assertTrue("en $k", en[k]?.text?.isNotBlank() == true)
+            assertTrue("fr $k", fr[k]?.text?.isNotBlank() == true)
+            assertTrue("fr $k differs from en", fr.getValue(k).text != en.getValue(k).text || k == "gallery_title")
+        }
+    }
 }

@@ -131,4 +131,32 @@
     <string name="lic_androidx">Bibliothèques AndroidX / Jetpack</string>
     <string name="lic_apache">Licence Apache 2.0</string>
     <string name="lic_androidx_notice">Cette appli utilise les bibliothèques Android Jetpack (Compose, CameraX, Lifecycle, DataStore, ExifInterface) et des bibliothèques Kotlin, sous licence Apache, version 2.0 : https://www.apache.org/licenses/LICENSE-2.0</string>
+    <!-- v1.1 : import, éditeur, galerie, négatifs -->
+    <string name="menu_import">Importer une photo</string>
+    <string name="menu_gallery">Galerie</string>
+    <string name="menu_keep_negatives">Conserver les négatifs</string>
+    <string name="editor_title_import">Développer une photo</string>
+    <string name="editor_title_redevelop">Redévelopper</string>
+    <string name="editor_save">Enregistrer</string>
+    <string name="editor_saving">Développement…</string>
+    <string name="editor_loading">Ouverture de la photo…</string>
+    <string name="editor_exposure">Exposition</string>
+    <string name="editor_temperature">Température</string>
+    <string name="editor_reset">Réinitialiser les réglages</string>
+    <string name="cd_editor_preview">Aperçu, rendu %1$s</string>
+    <string name="cd_prism">Objectif prisme</string>
+    <string name="err_import_failed">Impossible d\'ouvrir cette photo.</string>
+    <string name="err_negative_missing">Le négatif de cette photo n\'est plus disponible.</string>
+    <string name="err_delete_failed">Impossible de supprimer la photo.</string>
+    <string name="err_no_gallery_app">Aucune application ne peut afficher vos photos.</string>
+    <string name="msg_photo_deleted">Photo supprimée</string>
+    <string name="gallery_title">Galerie</string>
+    <string name="gallery_empty_title">Pas encore de photos ici</string>
+    <string name="gallery_empty_body">Les photos prises ou développées dans cette application apparaissent ici. Celles d\'avant une réinstallation restent dans votre application Photos.</string>
+    <string name="gallery_open_photos">Ouvrir dans Photos</string>
+    <string name="cd_photo_n">Photo %1$d</string>
+    <string name="viewer_position">%1$d sur %2$d</string>
+    <string name="viewer_share">Partager</string>
+    <string name="viewer_delete">Supprimer</string>
+    <string name="viewer_redevelop">Redévelopper</string>
 </resources>

@@ -108,6 +108,8 @@ data class CameraUiState(
     val gridShots: Int = 0,
     /** SPEC 7.4: prism lens (persisted). */
     val prism: PrismMode = PrismMode.OFF,
+    /** SPEC 6.9: keep a re-developable negative with every saved photo (persisted, default on). */
+    val keepNegatives: Boolean = true,
 )
 
 /** The multi-shot slice of the UI state as a pure value. */
@@ -130,6 +132,7 @@ sealed interface CameraIntent {
     data object CyclePrism : CameraIntent
     data object CancelFirstExposure : CameraIntent
     data object CycleFlashGel : CameraIntent
+    data object ToggleKeepNegatives : CameraIntent
     data object Shuffle : CameraIntent
     data object Shutter : CameraIntent
 
