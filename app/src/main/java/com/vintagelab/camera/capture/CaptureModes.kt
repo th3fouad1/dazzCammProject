@@ -1,6 +1,7 @@
 package com.vintagelab.camera.capture
 
 import com.vintagelab.camera.looks.FrameId
+import com.vintagelab.camera.looks.PrismMode
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -109,6 +110,10 @@ object MultiShotRules {
 
     /** Pause between the pictures of a burst; the next one starts once the previous ImageProxy is closed. */
     const val GRID_INTERVAL_MS = 150L
+
+    /** Prism is a per-frame effect; on a half-frame/grid composite it would hit only the composite's right side, so it is off while armed. */
+    fun effectivePrism(mode: MultiMode, prism: PrismMode): PrismMode =
+        if (mode == MultiMode.Half || mode == MultiMode.Grid4) PrismMode.OFF else prism
 
     /** First shutter of a grid: the burst starts and can no longer be cancelled or toggled. */
     fun beginBurst(s: MultiShotState): MultiShotState =

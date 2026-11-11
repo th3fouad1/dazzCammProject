@@ -77,52 +77,59 @@ class CapturePipeline(
         var busy = false
     }
 
-    private class Grid(val burstId: Long, val aspect: Float) {
-        val cells = ArrayList<Bitmap>(GridComposite.COLS * GridComposite.ROWS)
-    }
-
     private val lock = Any()
     private var first: First? = null
-    private var grid: Grid? = null
 
-    /** Drops the cells of an unfinished grid burst. */
-    fun clearGrid() {
-        synchronized(lock) {
-            val g = grid ?: return
-            grid = null
-            g.cells.forEach { it.recycle() }
-            g.cells.clear()
-        }
-    }
+    /** Grid burst generations and cells (SPEC 7.4); shared by every ViewModel through this singleton. */
+    private val bursts = GridBursts<Bitmap> { it.recycle() }
+
+    /** New globally unique burst generation; supersedes (and frees) every older one. */
+    fun beginGrid(): Long = bursts.begin()
+
+    /** True while [burstId] is the newest, non-aborted generation. */
+    fun isGridLive(burstId: Long): Boolean = bursts.isLive(burstId)
+
+    /** Aborts [burstId] (tombstone: late cells are rejected) and frees its cells. */
+    fun abortGrid(burstId: Long) = bursts.abort(burstId)
+
+    /** Background: aborts the current burst, whatever its owner, and drops every grid bitmap. */
+    fun abortAllGrids() = bursts.abortCurrent()
 
     /**
      * One picture of a multi-lens grid (SPEC 7.4). Cells 0..2 are developed into small upright bitmaps and kept;
      * the last one composes the 2x2 grid (gaps [GridComposite.GAP] x S), runs the graph once over it (look, grain, frame,
      * stamp) and saves. Success carries the saved Uri for the last cell, null otherwise.
-     * Cells of a burst that was aborted meanwhile fail with [GridAborted].
+     * Cells of a burst that was superseded or aborted fail with [GridAborted] and never touch the store.
      */
     suspend fun processGridCell(input: CaptureInput, settings: CaptureSettings, burstId: Long, index: Int): Result<Uri?> {
+        if (!bursts.isLive(burstId)) return Result.failure(GridAborted())
         val last = index == GridComposite.COLS * GridComposite.ROWS - 1
         val exif = if (last) ExifWriter.plan(ExifWriter.readSource(input.jpeg), settings.software, settings.time) else emptyMap()
         val state = if (last) withGel(input, settings) else settings.state
-        val r = guarded { cap, maxTexture ->
-            val storeCap = minOf(cap, STORE_LONG_SIDE)
-            val known = synchronized(lock) { grid?.takeIf { it.burstId == burstId } }
-            if (index == 0) clearGrid() else if (known == null || known.cells.size != index) throw GridAborted()
-            val cell = gridCell(input, storeCap, maxTexture, known?.aspect)
-            val g = synchronized(lock) {
-                val cur = grid?.takeIf { it.burstId == burstId } ?: Grid(burstId, cell.second).also { grid = it }
-                if (cur.cells.size != index) { cell.first.recycle(); throw GridAborted() }
-                cur.cells.add(cell.first)
-                cur
+        val r: Result<Uri?> = if (!last) {
+            // The guarded body only decodes (idempotent); the store is mutated once, after success.
+            guarded { cap, maxTexture ->
+                gridCell(input, minOf(cap, STORE_LONG_SIDE), maxTexture, bursts.aspectOf(burstId))
+            }.mapCatching { cell ->
+                bursts.add(burstId, index, cell.second, cell.first)
+                null
             }
-            if (!last) null else {
-                val whole = composeGrid(g, storeCap)
-                clearGrid()
+        } else {
+            // Stored cells stay immutable sources through every attempt; composed and rendered afresh at each cap.
+            guarded { cap, maxTexture ->
+                val storeCap = minOf(cap, STORE_LONG_SIDE)
+                val sources = bursts.snapshot(burstId, index)
+                val aspect = bursts.aspectOf(burstId) ?: throw GridAborted()
+                val cell = gridCell(input, storeCap, maxTexture, aspect).first
+                val whole = try {
+                    composeGrid(sources + cell, aspect, storeCap)
+                } finally {
+                    cell.recycle()
+                }
                 save(renderComposed(whole, settings.preset, state, cap), settings, exif)
             }
         }
-        if (r.isFailure || last) clearGrid()
+        if (r.isFailure || last) bursts.finish(burstId)
         return r.recoverCatching { if (it is CaptureException && it.cause is GridAborted) throw it.cause!! else throw it }
     }
 
@@ -143,16 +150,16 @@ class CapturePipeline(
         return cell to a
     }
 
-    /** Draws the cells row-major on a dark base; recycles them (the grid is final). */
-    private fun composeGrid(g: Grid, cap: Int): Bitmap {
-        val l = GridComposite.layout(g.aspect, cap)
+    /** Draws the cells row-major on a dark base; the cells stay owned by the store (a retry composes them again). */
+    private fun composeGrid(cells: List<Bitmap>, aspect: Float, cap: Int): Bitmap {
+        val l = GridComposite.layout(aspect, cap)
         val whole = Bitmap.createBitmap(l.canvasW, l.canvasH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(whole)
         canvas.drawColor(0xFF000000.toInt() or Diptych.GAP_COLOR)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-        synchronized(lock) {
-            g.cells.forEachIndexed { i, b ->
-                if (b.isRecycled) throw GridAborted()
+        bursts.withLock {
+            cells.forEachIndexed { i, b ->
+                if (b.isRecycled) { whole.recycle(); throw GridAborted() }
                 canvas.drawBitmap(b, null, Rect(l.cellX(i), l.cellY(i), l.cellX(i) + l.cellW, l.cellY(i) + l.cellH), paint)
             }
         }
@@ -266,20 +273,15 @@ class CapturePipeline(
         }
         val cap = minOf(limits.maxLongSide, capForMemory(memoryClassMb))
         return try {
-            Result.success(body(cap, limits.maxTexture))
+            Result.success(
+                retryOnOom(cap, RETRY_LONG_SIDE, onOom = {
+                    Log.w(TAG, "OOM during capture at cap $cap; retrying at $RETRY_LONG_SIDE")
+                    renderer.trim()
+                    System.gc()
+                }) { c -> body(c, if (c == cap) limits.maxTexture else RETRY_LONG_SIDE) },
+            )
         } catch (oom: OutOfMemoryError) {
-            Log.w(TAG, "OOM during capture at cap $cap; retrying at $RETRY_LONG_SIDE")
-            renderer.trim()
-            System.gc()
-            try {
-                Result.success(body(RETRY_LONG_SIDE, RETRY_LONG_SIDE))
-            } catch (oom2: OutOfMemoryError) {
-                Result.failure(CaptureException(CaptureErrorKind.DevelopFailed, oom2))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Result.failure(classify(e))
-            }
+            Result.failure(CaptureException(CaptureErrorKind.DevelopFailed, oom))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

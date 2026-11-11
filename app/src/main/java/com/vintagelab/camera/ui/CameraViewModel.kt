@@ -193,6 +193,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             CameraIntent.CyclePrism -> {
                 _state.update { it.copy(prism = it.prism.next()) }
                 persist()
+                refreshPreviewLook()
             }
             CameraIntent.CancelFirstExposure -> {
                 if (!MultiShotRules.canChangeMode(_state.value.multi)) return
@@ -375,7 +376,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 stampCodes = DateStamp.codes(now).toList(),
                 grainTime = renderer?.lastGrainTime ?: 0f,
                 gel = s.flashGel,
-                prism = s.prism,
+                prism = MultiShotRules.effectivePrism(s.multiMode, s.prism),
             ),
             time = now,
             software = app.getString(R.string.app_name),
@@ -492,7 +493,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
      * queue. No cancel once started; any failure aborts the whole grid.
      */
     private fun startGridBurst(settings: CaptureSettings, epoch: Int) {
-        val burst = ++gridSeq
+        val burst = app.capturePipeline.beginGrid().also { gridSeq = it }
         val m = MultiShotRules.beginBurst(_state.value.multi)
         _state.update { it.copy(multiExposure = m.phase, gridShots = m.gridShots, lookSeed = Random.nextLong()) }
         publishCaptureState()
@@ -514,6 +515,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                     return@launch
                 }
                 taking = false
+                // Backgrounded/aborted/superseded while the picture was being taken: drop it (no storage is created).
+                if (gridAbortedId == burst || !app.capturePipeline.isGridLive(burst)) {
+                    abortGrid(burst)
+                    return@launch
+                }
                 outstanding++
                 val next = MultiShotRules.burstShotTaken(_state.value.multi)
                 _state.update { it.copy(gridShots = next.gridShots) }
@@ -539,13 +545,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         if (burst != gridSeq) return
         val m = MultiShotRules.endBurst(_state.value.multi)
         _state.update { it.copy(multiExposure = m.phase, gridShots = m.gridShots) }
-        app.capturePipeline.clearGrid()
     }
 
     /** Fails the burst once; returns true for the call that aborted it (the one that reports the error). */
     private fun abortGrid(burst: Long): Boolean {
         if (burst != gridSeq || gridAbortedId == burst) return false
         gridAbortedId = burst
+        app.capturePipeline.abortGrid(burst)
         endGrid(burst)
         publishCaptureState()
         return true
@@ -562,6 +568,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         if (!MultiShotRules.canChangeMode(_state.value.multi)) return
         val step = MultiShotRules.toggle(_state.value.multi, mode)
         applyMulti(step)
+        refreshPreviewLook()
         if (step.state.mode == MultiMode.Grid4) {
             // The composite has its own shape: ratio-forcing frames are skipped while armed.
             _state.update { it.copy(frame = MultiShotRules.enforceFrame(it.multi, it.frame, it.frame)) }
@@ -606,7 +613,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val m = _state.value.multi
         if (m.phase == MultiExposure.HasFirst) applyMulti(MultiShotRules.onDropped(m), notify = true)
         if (m.phase == MultiExposure.Burst) abortGrid(gridSeq)
-        app.capturePipeline.clearGrid()
+        app.capturePipeline.abortAllGrids()
     }
 
     /** Trim or OOM may have emptied the store behind our back. */
@@ -640,7 +647,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val s = _state.value
         renderer?.look = PreviewLook(
             repo.get(s.lookId),
-            LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList(), prism = s.prism),
+            LookState(s.lookSeed, s.frame, s.dateStamp, DateStamp.codes(LocalDate.now().atStartOfDay()).toList(), prism = MultiShotRules.effectivePrism(s.multiMode, s.prism)),
         )
     }
 

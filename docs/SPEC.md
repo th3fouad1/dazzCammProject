@@ -368,7 +368,7 @@ cycled from the More menu. Uniform `vec2 uPrism` = (mode code, amount 1), Pass 1
 distortion and before the circular mask). All offsets are normalized (image uv or short-side units divided by the aspect), so preview
 and capture match; it is off in `ParityTest`. Split: the right-hand side is mirrored about x = 0.60 (soft blend over 0.10 each way, 60 %);
 Tri: three copies displaced 0.05 S at 90, 210, 330 degrees, weight 1/3 each; Halo: 9-tap radial zoom blur (to 0.88x) confined to a ring
-0.18-0.36 S (in) and 0.52-0.80 S (out) around the centre, 85 %. Half-frame/grid composites get the prism once over the whole canvas.
+0.18-0.36 S (in) and 0.52-0.80 S (out) around the centre, 85 %. While half-frame or grid is armed the prism is disabled (preview and capture; `MultiShotRules.effectivePrism`): applied over the composite it would only affect its right side, unlike the per-frame preview.
 
 ### 7.5 Decisions (B3, B4)
 See D11-D14 and D15-D18 in section 11.
