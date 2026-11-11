@@ -566,6 +566,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun toggleMulti(mode: MultiMode) {
         if (!MultiShotRules.canChangeMode(_state.value.multi)) return
+        val prevMode = _state.value.multi.mode
         val step = MultiShotRules.toggle(_state.value.multi, mode)
         applyMulti(step)
         refreshPreviewLook()
@@ -584,6 +585,16 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             persist()
             rebindIfNeeded()
+        }
+        if (step.state.mode == MultiMode.None && (prevMode == MultiMode.Half || prevMode == MultiMode.Grid4)) {
+            // Leaving Half/Grid: give back a ratio-forcing preset frame that arming replaced with NONE.
+            val def = presets?.get(_state.value.lookId)?.defaultFrame
+            if (def != null && _state.value.frame == FrameId.NONE && MultiShotRules.enforceFrame(_state.value.multi, FrameId.NONE, def) == def) {
+                _state.update { it.copy(frame = def) }
+                persist()
+                refreshPreviewLook()
+                rebindIfNeeded()
+            }
         }
     }
 
