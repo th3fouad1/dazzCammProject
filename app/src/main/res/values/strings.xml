@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Temporary display label (SPEC §2.4): must be replaced before the first Play upload. -->
+    <string name="app_name">Dazz Cam</string>
+</resources>
