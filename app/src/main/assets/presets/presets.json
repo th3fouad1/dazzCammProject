@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "classic35", "displayNameRes": "look_classic35", "lut": "kodak_gold_200", "lutStrength": 0.9,
+      "exposure": 0.05, "tone": { "all": [[0, 0.04], [0.25, 0.24], [0.75, 0.78], [1, 0.97]] },
+      "saturation": 1.05, "temperature": 0.08, "tint": 0.0,
+      "shadowTint": { "color": "#1E4A46", "amount": 0.08 }, "highlightTint": { "color": "#FFD9A0", "amount": 0.10 },
+      "fade": 0.04, "monochrome": false,
+      "grain": { "amount": 0.25, "size": 0.0012, "chroma": 0.15 },
+      "vignette": { "amount": 0.25, "radius": 0.9, "softness": 0.6, "shape": "oval" },
+      "centerGlow": { "amount": 0, "radius": 0.5 }, "softFocus": 0, "bloom": { "amount": 0, "threshold": 0.8 },
+      "sharpen": 0, "distortion": { "barrel": 0, "circularMask": false },
+      "lightLeak": { "probability": 0.3, "amount": 0.35, "variants": [0, 1, 2, 3] }, "dust": 0.1,
+      "defaultFrame": "none", "dateStamp": { "enabledByDefault": false, "color": "#FF8A1F" }
+    },
+    {
+      "id": "disposable", "displayNameRes": "look_disposable", "lut": "fuji_superia_400", "lutStrength": 1.0,
+      "exposure": 0.1, "tone": { "all": [[0, 0.03], [0.3, 0.27], [0.7, 0.76], [1, 0.98]] },
+      "saturation": 1.12, "temperature": 0.04, "tint": -0.03,
+      "shadowTint": { "color": "#2A4A3A", "amount": 0.12 }, "highlightTint": { "color": "#FFE6B8", "amount": 0.08 },
+      "fade": 0.03, "monochrome": false,
+      "grain": { "amount": 0.55, "size": 0.0022, "chroma": 0.3 },
+      "vignette": { "amount": 0.55, "radius": 0.75, "softness": 0.55, "shape": "oval" },
+      "centerGlow": { "amount": 0.35, "radius": 0.45 }, "softFocus": 0.3, "bloom": { "amount": 0.1, "threshold": 0.85 },
+      "sharpen": 0, "distortion": { "barrel": 0.08, "circularMask": false },
+      "lightLeak": { "probability": 0.5, "amount": 0.45, "variants": [0, 1, 2, 3] }, "dust": 0.25,
+      "defaultFrame": "none", "dateStamp": { "enabledByDefault": false, "color": "#FF8A1F" }
+    },
+    {
+      "id": "instant", "displayNameRes": "look_instant", "lut": "fuji_pro_400h", "lutStrength": 0.85,
+      "exposure": 0.15, "tone": { "all": [[0, 0.08], [0.5, 0.53], [1, 0.92]] },
+      "saturation": 0.85, "temperature": 0.06, "tint": 0.02,
+      "shadowTint": { "color": "#3A4A6A", "amount": 0.10 }, "highlightTint": { "color": "#FFE9C8", "amount": 0.12 },
+      "fade": 0.25, "monochrome": false,
+      "grain": { "amount": 0.15, "size": 0.0015, "chroma": 0.1 },
+      "vignette": { "amount": 0.2, "radius": 1.0, "softness": 0.7, "shape": "oval" },
+      "centerGlow": { "amount": 0.1, "radius": 0.6 }, "softFocus": 0.15, "bloom": { "amount": 0, "threshold": 0.8 },
+      "sharpen": 0, "distortion": { "barrel": 0, "circularMask": false },
+      "lightLeak": { "probability": 0.2, "amount": 0.25, "variants": [1, 3] }, "dust": 0.05,
+      "defaultFrame": "instant_white", "dateStamp": { "enabledByDefault": false, "color": "#FF8A1F" }
+    },
+    {
+      "id": "ccd", "displayNameRes": "look_ccd", "lut": "kodak_ultra_max_400", "lutStrength": 0.7,
+      "exposure": 0.1, "tone": { "all": [[0, 0.0], [0.25, 0.22], [0.75, 0.8], [1, 1.0]] },
+      "saturation": 1.15, "temperature": -0.2, "tint": 0.04,
+      "shadowTint": { "color": "#1A3A5A", "amount": 0.10 }, "highlightTint": { "color": "#E8F4FF", "amount": 0.06 },
+      "fade": 0.0, "monochrome": false,
+      "grain": { "amount": 0.18, "size": 0.0009, "chroma": 0.8 },
+      "vignette": { "amount": 0.1, "radius": 1.1, "softness": 0.6, "shape": "oval" },
+      "centerGlow": { "amount": 0, "radius": 0.5 }, "softFocus": 0, "bloom": { "amount": 0.35, "threshold": 0.75 },
+      "sharpen": 0.5, "distortion": { "barrel": 0, "circularMask": false },
+      "lightLeak": { "probability": 0, "amount": 0, "variants": [0, 1, 2, 3] }, "dust": 0,
+      "defaultFrame": "none", "dateStamp": { "enabledByDefault": true, "color": "#FF8A1F" }
+    },
+    {
+      "id": "bw400", "displayNameRes": "look_bw400", "lut": "kodak_tri_x_400", "lutStrength": 1.0,
+      "exposure": 0.0, "tone": { "all": [[0, 0.02], [0.25, 0.2], [0.75, 0.82], [1, 0.98]] },
+      "saturation": 1.0, "temperature": 0, "tint": 0,
+      "fade": 0.02, "monochrome": true,
+      "grain": { "amount": 0.5, "size": 0.002, "chroma": 0 },
+      "vignette": { "amount": 0.4, "radius": 0.85, "softness": 0.6, "shape": "oval" },
+      "centerGlow": { "amount": 0, "radius": 0.5 }, "softFocus": 0, "bloom": { "amount": 0, "threshold": 0.8 },
+      "sharpen": 0.15, "distortion": { "barrel": 0, "circularMask": false },
+      "lightLeak": { "probability": 0, "amount": 0, "variants": [0, 1, 2, 3] }, "dust": 0.15,
+      "defaultFrame": "none", "dateStamp": { "enabledByDefault": false, "color": "#FF8A1F" }
+    },
+    {
+      "id": "fisheye", "displayNameRes": "look_fisheye", "lut": "kodak_colorplus_200", "lutStrength": 0.9,
+      "exposure": 0.05, "tone": { "all": [[0, 0.03], [0.3, 0.28], [0.7, 0.74], [1, 0.98]] },
+      "saturation": 1.1, "temperature": 0.05, "tint": 0,
+      "fade": 0.03, "monochrome": false,
+      "grain": { "amount": 0.25, "size": 0.0014, "chroma": 0.2 },
+      "vignette": { "amount": 0.3, "radius": 0.95, "softness": 0.5, "shape": "circle" },
+      "centerGlow": { "amount": 0, "radius": 0.5 }, "softFocus": 0, "bloom": { "amount": 0, "threshold": 0.8 },
+      "sharpen": 0, "distortion": { "barrel": 0.6, "circularMask": true },
+      "lightLeak": { "probability": 0.25, "amount": 0.3, "variants": [0, 2] }, "dust": 0.05,
+      "defaultFrame": "none", "dateStamp": { "enabledByDefault": false, "color": "#FF8A1F" }
+    }
+  ]
+}
