@@ -358,7 +358,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun develop(input: CaptureInput, settings: CaptureSettings) {
-        val result = app.capturePipeline.process(input, settings)
+        // Per-job failure boundary: a throwing job must never kill the queue consumer.
+        val result = try {
+            app.capturePipeline.process(input, settings)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
         withContext(Dispatchers.Main) {
             outstanding--
             result.onSuccess { uri ->

@@ -61,6 +61,7 @@ sealed interface CameraEvent {
 class CameraController(private val context: Context) {
     private var provider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var bindGeneration = 0
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var surfaceProvider: Preview.SurfaceProvider? = null
@@ -142,6 +143,14 @@ class CameraController(private val context: Context) {
             .addUseCase(previewUseCase)
             .addUseCase(captureUseCase)
             .build()
+        // Detach observers of the previous camera before binding the new one (lens switch).
+        camera?.cameraInfo?.let { old ->
+            this.owner?.let { prevOwner ->
+                old.cameraState.removeObservers(prevOwner)
+                old.zoomState.removeObservers(prevOwner)
+            }
+        }
+        val bindGen = ++bindGeneration
         val cam = p.bindToLifecycle(owner, selector, group)
         this.owner = owner
         this.lens = useLens
@@ -151,9 +160,12 @@ class CameraController(private val context: Context) {
         this.surfaceProvider = surfaceProvider
         setFlash(flash)
         cam.cameraInfo.cameraState.removeObservers(owner)
-        cam.cameraInfo.cameraState.observe(owner) { state -> onEvent?.invoke(map(state)) }
+        cam.cameraInfo.cameraState.observe(owner) { state ->
+            if (bindGen == bindGeneration) onEvent?.invoke(map(state))
+        }
         cam.cameraInfo.zoomState.removeObservers(owner)
         cam.cameraInfo.zoomState.observe(owner) { z ->
+            if (bindGen != bindGeneration) return@observe
             onEvent?.invoke(CameraEvent.ZoomChanged(z.linearZoom, z.zoomRatio, z.minZoomRatio, z.maxZoomRatio))
         }
         return CameraCapabilities(
@@ -243,14 +255,16 @@ class CameraController(private val context: Context) {
                             val buf = image.planes[0].buffer
                             val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
                             val c = image.cropRect
-                            CaptureInput(bytes, image.imageInfo.rotationDegrees, IntRect(c.left, c.top, c.right, c.bottom), image.width, image.height)
-                        } catch (e: Exception) {
+                            Result.success(
+                                CaptureInput(bytes, image.imageInfo.rotationDegrees, IntRect(c.left, c.top, c.right, c.bottom), image.width, image.height),
+                            )
+                        } catch (t: Throwable) {
+                            // Includes OutOfMemoryError on the JPEG copy: surface as a capture failure.
+                            Result.failure(t)
+                        } finally {
                             image.close()
-                            cont.resumeWithException(e)
-                            return
                         }
-                        image.close()
-                        cont.resume(result)
+                        result.fold({ cont.resume(it) }, { cont.resumeWithException(it) })
                     }
 
                     override fun onError(exception: ImageCaptureException) {
