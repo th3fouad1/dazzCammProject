@@ -434,3 +434,11 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
   Likely cause: grain frequency near/above the preview Nyquist, so the area-downscaled full-res grain loses variance. Phase B task: band-limit grain (octave clamp by `uShortSide`), and measure std after a matched low-pass in the test.
 - Observation to verify in Phase B: front-camera Mono capture looks brighter/less vignetted than its preview (ISP difference vs vignette parity).
 
+## Appendix C — Look tuning pass 1 (2026-11-11, OnePlus 11, indoor evening light)
+- Method: same scene captured with all 6 looks via adb, mean RGB / warmth (R−B) measured, 3 iterations.
+- Golden: warmth R−B 6 → 25 (temperature 0.45, amber highlight tint 0.3, grain 0.4, vignette 0.35). Accepted.
+- Pocket: exposure +0.3, temp 0.32, sat 1.3, glow/soft focus reduced. Still dark indoors without flash (strong vignette) — re-check in daylight and with flash.
+- Instant / Digi / Mono / Bubble: minor tweaks; Digi stays cool-cyan (LUT-dominated), Mono more contrast, Bubble more saturated.
+- Bug found: swiping on the viewfinder changes look only once per session; carousel taps work. → Phase B fix.
+- Note: `temperature` has a weak effect relative to the film LUT; consider widening its range in the baker.
+
