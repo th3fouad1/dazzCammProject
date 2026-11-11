@@ -363,7 +363,7 @@ pipeline stays.
 | D6 | frame/stamp in GL Pass 4, SDF glyphs | Accepted | 2026-11-11 |
 | D7 | import + gallery deferred to v1.1 | Accepted (owner) | 2026-11-11 |
 | D8 | minSdk 29 | Accepted (owner) | 2026-11-11 |
-| D9 | reference device = owner's phone (model TBD at connection) | Proposed | 2026-11-11 |
+| D9 | reference device = OnePlus 11 (CPH2449), Snapdragon 8 Gen 2 (SM8550), Adreno 740, Android 15 / API 35 | Accepted | 2026-11-11 |
 | D10 | colour = t3mujinpack HaldCLUT (MIT) baked with parametric ops | Accepted | 2026-11-11 |
 
 ## 12. Risks
@@ -426,3 +426,11 @@ texture fed by the camera. **FBO** = offscreen framebuffer. **LUT** = colour loo
   "lightLeak": {"probability":0.3,"amount":0.35,"variants":[0,1,2,3]}, "dust": 0.1,
   "defaultFrame": "none", "dateStamp": {"enabledByDefault": false, "color": "#FF8A1F"} }
 ```
+
+## Appendix B — First device run (2026-11-11, OnePlus 11, API 35)
+- Install + launch OK; permission flow OK; back preview upright; front preview mirrored.
+- Capture OK: back 2996×3994 (render cap), front 1726×2300; saved upright, not mirrored, EXIF Orientation=1, Software set, date stamp rendered.
+- ParityTest: `grainOff_meanAndP99` PASS (all presets). `grainOn_blockStatsWithin5Percent` FAIL — classic35 139/352 blocks outside ±5 %.
+  Likely cause: grain frequency near/above the preview Nyquist, so the area-downscaled full-res grain loses variance. Phase B task: band-limit grain (octave clamp by `uShortSide`), and measure std after a matched low-pass in the test.
+- Observation to verify in Phase B: front-camera Mono capture looks brighter/less vignetted than its preview (ISP difference vs vignette parity).
+
