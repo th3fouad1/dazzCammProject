@@ -140,7 +140,7 @@
     <string name="menu_import">Import photo</string>
     <string name="menu_gallery">Gallery</string>
     <string name="menu_keep_negatives">Keep negatives</string>
-    <string name="editor_title_import">Develop a photo</string>
+    <string name="editor_title_import">Develop</string>
     <string name="editor_title_redevelop">Re-develop</string>
     <string name="editor_save">Save</string>
     <string name="editor_saving">Developing…</string>

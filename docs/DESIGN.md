@@ -211,13 +211,13 @@ Portrait, one hand, phone ~6.1–6.7″. The **thumb zone** is the bottom ~45 % 
 | **T1 gestures** | no visible chrome needed | tap to focus, pinch or pill drag to zoom, swipe to change look, volume/camera key = shutter | viewfinder, hardware |
 | **T2: set-and-forget** | one tap, always visible; persisted in DataStore (SPEC §6.2), so they're rarely touched mid-session | Flash, Timer, Ratio, Frame, Date stamp | control bar (stretch zone). In Mini mode they move into the Controls sheet. |
 | **T3: contextual** | shown only when it applies | Shuffle (only when the look has a leak or dust), Cancel timer (the shutter itself) | viewfinder bottom-start, shutter |
-| **T4: rare** | behind ⋯ | Open-source licenses (v1.1 adds Import) | ⋯ menu |
+| **T4: rare** | behind ⋯ | Open-source licenses, Import photo, Gallery, Keep negatives (v1.1, section 12) | ⋯ menu |
 
 Rule for future controls: anything used on most shots must go in T1. Adding a T2 control needs a slot in both the control bar **and** the Controls sheet (§4.6).
 
 ### 3.2 Screens and navigation
 There is no navigation library, because adding a dependency needs approval.
-- Routes are `enum class Screen { Camera, Licenses }`, held in `rememberSaveable` (enums are saveable as-is).
+- Routes are `enum class Screen { Camera, Licenses, Gallery, Editor }` (v1.1, section 12), held in `rememberSaveable` (enums are saveable as-is).
 - The permission and error states are **states of the Camera route**, not separate destinations.
 
 ```
@@ -232,11 +232,12 @@ Licenses ─ back (system predictive back or top-bar arrow) ─► Camera
 
 | screen / state | file | entry | exit |
 |---|---|---|---|
-| CameraScreen | `ui/CameraScreen.kt` | permission Granted | ⋯ › Licenses; thumbnail › external viewer (`ACTION_VIEW`, `image/jpeg`, `FLAG_GRANT_READ_URI_PERMISSION`) |
+| CameraScreen | `ui/CameraScreen.kt` | permission Granted | ⋯ › Licenses / Import / Gallery; thumbnail › our Viewer (v1.1; v1 used external `ACTION_VIEW`) |
 | PermissionGate | `ui/PermissionScreen.kt` | permission Denied or PermanentlyDenied | see §3.3 |
 | CameraStatusPanel (Opening / Error) | `ui/CameraScreen.kt` | camera status ≠ Ready **[K3]** | automatic, or "Try again" |
 | Licenses | `ui/LicensesScreen.kt` | ⋯ menu, or the PermissionGate footer | back |
-| **v1.1 placeholder: Gallery / Import** | none | Reserve the enum names `Gallery` and `Import` in a comment only. In v1.1 the thumbnail tap moves to Gallery, and the ⋯ menu gains "Import photo". In v1 the ⋯ menu has a single item. | — |
+| Gallery (grid + Viewer) | `gallery/GalleryScreen.kt` | ⋯ › Gallery; thumbnail; after an editor save | back; Re-develop › Editor |
+| Editor | `editor/EditorScreen.kt` | ⋯ › Import photo (Picker); Viewer › Re-develop | back; Save › Gallery (see section 12) |
 
 **Leaving the Camera route unbinds the camera.** On Licenses, `CameraScreen` leaves composition, the `GLSurfaceView` is disposed and `CameraController` unbinds. The privacy indicator turns off. On return the camera rebinds behind the opening veil (§6.7).
 
@@ -1009,3 +1010,82 @@ Tests in B-UI (JVM, no device):
 | U7 | Shutter sound: region-forced only (default), or always on | open, owner |
 | U8 | Contract requests K1–K17 (§10.4), especially K3, K4, K8 and K17, before the Phase A freeze | open, integrator |
 | U9 | Declare `lifecycle-runtime-compose` explicitly (already transitive) | open, integrator |
+
+## 12. v1.1 screens: Import editor, Gallery, Viewer (original design)
+
+Same tokens as the camera (section 2): Bench background, Deck bars, Raised cards, amber for the one primary action, Plex Mono labels.
+No navigation library: `enum class Screen { Camera, Licenses, Gallery, Editor }` (section 3.2). The Viewer is a state of the Gallery route.
+
+### 12.1 Routes
+```
+Camera ⋯ menu ─► Import photo ─► system Photo Picker ─► Editor ─ Save ─► Gallery (viewer on the new photo)
+Camera ⋯ menu ─► Gallery ─► grid ─► Viewer ─► Share | Re-develop ─► Editor ─ Save ─► Gallery (viewer on the new photo) | Delete
+Camera last-shot thumbnail ─► Gallery, viewer opened on that photo
+Gallery top bar "Import photo" ─► Picker ─► Editor (back returns to Gallery)
+Back: Viewer ─► grid ─► Camera; Editor ─► where it came from (disabled while saving)
+```
+Entering Gallery or Editor leaves the Camera route, so the camera unbinds (as for Licenses). Returning to the camera refreshes the last-shot thumbnail.
+
+### 12.2 Editor (import and re-develop)
+```
+┌──────────────────────────────┐
+│ ←  Develop / Re-develop  Save│  top bar (Deck); Save = amber text, disabled until Ready/while saving
+├──────────────────────────────┤
+│                              │
+│        live preview          │  Fit, same render graph as the camera; spinner + label while Loading / Saving
+│                              │
+├──────────────────────────────┤
+│  [frame] [stamp] [prism] [⚄] │  4 x 48 dp ControlButton (frame cycle, date stamp, prism cycle, shuffle)
+│  Exposure     ───●───  +0.0 EV│  -1..+1 EV, step 0.05
+│  Temperature  ───●───  +0     │  -0.5..+0.5 (shown -50..+50), step 0.05
+│  [ Reset adjustments ]        │  only when a slider is not at 0
+│  look carousel (LookPicker)   │  96 dp, same component as the camera
+└──────────────────────────────┘
+```
+Landscape: preview left, a 340 dp scrollable control column right. States: Loading (spinner "Opening photo..."), Ready, Saving (spinner "Developing...",
+all controls disabled, back disabled), Failed (message + Back: open failed / negative gone), transient snackbar for preview or save errors.
+Accessibility: sliders carry label + value as state description; preview has the content description "Preview, <look> look"; every button has a content description.
+
+### 12.3 Gallery grid
+Top bar: back, "Gallery", text action "Import photo" (amber). Body: `LazyVerticalGrid`, adaptive 110 dp cells, 2 dp gaps, square cropped thumbnails on Raised.
+States: Loading (spinner), Empty, Grid. **Empty** (also right after a reinstall): title "No photos here yet", body explaining that photos from before a reinstall stay in
+the Photos app, and the text button **Open in Photos**; if no gallery app exists a toast says so.
+
+### 12.4 Viewer
+Full-screen pager on Bench, swipe between photos, top scrim row with back arrow and "n of m", bottom scrim row with three text actions:
+**Share** (ink), **Re-develop** (amber, shown only when a negative exists), **Delete** (Signal red). Delete asks the system on Android 11+ (the system dialog is the confirmation);
+a snackbar confirms "Photo deleted" or reports a failure. After the last photo is deleted the grid shows the empty state.
+
+### 12.5 Camera changes
+The thumbnail opens the Viewer. The ⋯ menu (and the Mini controls sheet) gains: Import photo, Gallery, "Keep negatives: On/Off" (default On), above Open-source licenses.
+
+### 12.6 String keys (v1.1; EN in `values/strings.xml`, FR in `values-fr/strings.xml`; `StringResourcesTest` enforces completeness)
+| key | EN | FR |
+|---|---|---|
+| `menu_import` | Import photo | Importer une photo |
+| `menu_gallery` | Gallery | Galerie |
+| `menu_keep_negatives` | Keep negatives | Conserver les négatifs |
+| `editor_title_import` | Develop | Développer |
+| `editor_title_redevelop` | Re-develop | Redévelopper |
+| `editor_save` | Save | Enregistrer |
+| `editor_saving` | Developing… | Développement… |
+| `editor_loading` | Opening photo… | Ouverture de la photo… |
+| `editor_exposure` | Exposure | Exposition |
+| `editor_temperature` | Temperature | Température |
+| `editor_reset` | Reset adjustments | Réinitialiser les réglages |
+| `cd_editor_preview` | Preview, %1$s look | Aperçu, rendu %1$s |
+| `cd_prism` | Prism lens | Objectif prisme |
+| `err_import_failed` | Couldn't open that photo. | Impossible d'ouvrir cette photo. |
+| `err_negative_missing` | The negative of this photo is no longer available. | Le négatif de cette photo n'est plus disponible. |
+| `err_delete_failed` | Couldn't delete the photo. | Impossible de supprimer la photo. |
+| `err_no_gallery_app` | No app can show your photos. | Aucune application ne peut afficher vos photos. |
+| `msg_photo_deleted` | Photo deleted | Photo supprimée |
+| `gallery_title` | Gallery | Galerie |
+| `gallery_empty_title` | No photos here yet | Pas encore de photos ici |
+| `gallery_empty_body` | Photos you take or develop in this app appear here. Photos from before a reinstall stay in your Photos app. | Les photos prises ou développées dans cette application apparaissent ici. Celles d'avant une réinstallation restent dans votre application Photos. |
+| `gallery_open_photos` | Open in Photos | Ouvrir dans Photos |
+| `cd_photo_n` | Photo %1$d | Photo %1$d |
+| `viewer_position` | %1$d of %2$d | %1$d sur %2$d |
+| `viewer_share` | Share | Partager |
+| `viewer_delete` | Delete | Supprimer |
+| `viewer_redevelop` | Re-develop | Redévelopper |

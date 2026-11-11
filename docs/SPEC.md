@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Status | DRAFT v0.2 — 2026-11-11 |
+| Status | DRAFT v0.3 — 2026-11-11 |
 | Owner | Project owner (the user) — approves looks, names, scope |
 | Integrator / reviewer | Claude (main session) |
 | Related | `docs/reviews/spec-review-v0.1.md` (Goldfish review), `docs/DESIGN.md` (pending, Visual Storyteller), `third_party/t3mujinpack/NOTICE.md` |
-| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) · v0.2.2 Sprint A.1: contract K1–K17 (§6.2), next-shot rule (§5.3), capture memory (§6.5) |
+| Changelog | v0.1 initial · v0.2 applies Goldfish review B1–B7, S1–S18, owner decisions D7/D8 · v0.2.1 Phase A implementation notes (§6.4, §7.2, §9, §10) · v0.2.2 Sprint A.1: contract K1–K17 (§6.2), next-shot rule (§5.3), capture memory (§6.5) · v0.3 v1.1: import + editor (§6.7), in-app gallery (§6.8), negatives (§6.9), D19–D24, privacy note (§4) |
 
 > **Read §5 (pipeline & parity) first** — it is the hard constraint.
 
@@ -35,12 +35,15 @@ phone's gallery within ~2.5 s.
 2. Six looks (see §3.4). Effects: grain, vignette, procedural light leaks (exactly 4 variants), procedural dust, centre glow, soft focus / bloom, fisheye distortion.
 3. Frames: none / instant white / film strip. Date stamp (orange 7-segment, procedural).
 4. Ratios 4:3, 1:1, 16:9. Self-timer off/3 s/10 s.
-5. Save JPEG to MediaStore `Pictures/<SAVE_FOLDER>`; last-shot thumbnail opens it via `ACTION_VIEW`.
+5. Save JPEG to MediaStore `Pictures/<SAVE_FOLDER>`; last-shot thumbnail opens it (v1: `ACTION_VIEW`; v1.1: our own viewer, §6.8).
 6. In-app "Open-source licenses" screen (t3mujinpack MIT).
 
-### 3.2 Deferred (v1.1+)
-Photo import + editor, in-app gallery (owner decision D7), video, accessories
-(overlay effects imitating physical lens add-ons), more looks, billing.
+### 3.2 Deferred (v1.2+)
+Video, accessories (overlay effects imitating physical lens add-ons), more looks, billing.
+
+**Delivered in v1.1 (owner decision D7, review S8/S9 Option B):** photo import and editor (§6.7), in-app gallery (§6.8), re-develop from stored
+negatives (§6.9). Out of scope for v1.1: batch import, video import, cropping/rotating in the editor, cloud backup of negatives, editing photos not saved by this app
+other than by importing them.
 
 ### 3.3 Non-goals
 RAW, manual ISO/shutter, accounts/cloud, ads/analytics, user-editable presets,
@@ -70,9 +73,14 @@ the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes 
 ## 4. Privacy & Play
 
 - No INTERNET permission, no analytics/crash/ads SDKs. Data Safety: no data collected or shared.
-- Permissions: CAMERA (runtime) only. **minSdk 29** (owner decision D8) → no storage permission ever.
+- Permissions: CAMERA (runtime) only. **minSdk 29** (owner decision D8) → no storage permission ever. v1.1 import uses the system Photo Picker and the gallery
+  lists only rows this install owns, so `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` are never requested.
+- **Negatives stay on the device** (v1.1, §6.9): the re-develop source and its settings live in app-private `filesDir`, are never uploaded or shared, are removed with
+  their photo or when the app is uninstalled (`allowBackup=false`, excluded from data extraction), and can be switched off with "Keep negatives". They hold no GPS:
+  the camera path never keeps it, the import path strips it (the working source is re-encoded without metadata; only the copied tag whitelist is stored). Data Safety
+  answer stays "no data collected or shared".
 - Output EXIF via `androidx.exifinterface`: copy DateTimeOriginal, OffsetTime*, Make, Model,
-  ExposureTime, FNumber, ISOSpeedRatings, FocalLength; set Orientation=1 and Software=app_name. Never write GPS.
+  ExposureTime, FNumber, ISOSpeedRatings, FocalLength; set Orientation=1 and Software=app_name. Never write GPS (also for imports and re-develops).
 - targetSdk 36: `enableEdgeToEdge()`, `WindowInsets.safeDrawing` + cutout padding, back via `BackHandler`,
   layout must survive landscape/multi-window (large-screen orientation locks are ignored).
 - Release prerequisites (Mobile Release Engineer, Phase C): privacy policy page, content rating,
@@ -144,8 +152,11 @@ vs sampler2D conversion of the same chart within the same tolerance.
 ```
 app/src/main/java/com/vintagelab/camera/
 ├── MainActivity.kt, App.kt
-├── ui/        CameraScreen.kt, LookPicker.kt, Controls.kt, PermissionScreen.kt, LicensesScreen.kt
+├── ui/        CameraScreen.kt, LookPicker.kt, Controls.kt, PermissionScreen.kt, LicensesScreen.kt, AppRoot.kt (routes)
 │              CameraViewModel.kt, CameraUiState.kt
+├── editor/    ImageImporter.kt, ExifOrientation.kt, EditorViewModel.kt, EditorScreen.kt   (v1.1, §6.7)
+├── gallery/   GalleryQuery.kt, GalleryRepository.kt, GalleryViewModel.kt, GalleryScreen.kt (v1.1, §6.8)
+├── negatives/ NegativeSettings.kt, NegativeStore.kt, NegativeLru.kt                        (v1.1, §6.9)
 ├── camera/    CameraController.kt (UseCaseGroup, ViewPort, focus/zoom/flash)
 ├── gl/        EglCore.kt, ShaderProgram.kt, GlPreviewRenderer.kt, OffscreenRenderer.kt,
 │              RenderGraph.kt (passes 0–4), Textures.kt, LutLoader.kt
@@ -237,6 +248,72 @@ frame, dateStamp with DataStore Preferences. Selecting a look resets frame/dateS
 Insert with `RELATIVE_PATH = Pictures/<SAVE_FOLDER>` and `IS_PENDING=1`, write, set `IS_PENDING=0`;
 on startup delete our own still-pending rows; on failure delete the pending row.
 Filename `IMG_yyyyMMdd_HHmmss_SSS.jpg`. `SAVE_FOLDER` is a constant in `StorageConfig.kt` (fixed before release, D1).
+
+### 6.7 Import and Editor (v1.1)
+Original UI; nothing imitates another app. The Editor is the camera's render graph fed by a stored photo instead of CameraX.
+
+**Entry.** ⋯ menu › "Import photo" (camera) or the Gallery top bar. `ActivityResultContracts.PickVisualMedia(ImageOnly)` is registered in `AppRoot`
+(it must outlive the menu). The system Photo Picker needs **no storage permission**; on API 29-32 the manifest carries the Play-services backport entry
+(`com.google.android.gms.metadata.ModuleDependencies`, `photopicker_activity:0:required`), without it the contract falls back to `ACTION_OPEN_DOCUMENT`.
+
+**Decode** (`editor/ImageImporter`). `ImageDecoder` (software allocator, sRGB target, so JPEG, HEIC, PNG and WebP work). `ImageDecoder` applies the
+EXIF orientation itself (all eight values); `editor/ExifOrientation` (pure, "mirror then rotate clockwise", unit tested for the 8 cases) is used by the
+`BitmapFactory` fallback when `ImageDecoder` fails. The long side is capped at the **render cap** of `CapturePipeline.renderCap()` (same memory-budgeted
+`min(GL limits, capForMemory)` as a capture; sub-sampled first, then scaled). The result is re-encoded as JPEG q95 **without any metadata**, so the working
+source and everything derived from it carry no GPS. Only a whitelist (`ExifWriter.COPIED_TAGS`: date, make, model, exposure, aperture, ISO, focal length)
+is kept as a map for the output EXIF. The original is only ever read.
+
+**Preview** (same graph, same context). The editor holds the q95 source bytes and a downsampled copy (about 720-1440 px long side, power-of-two
+sub-sampling). Every parameter change renders that copy through `CapturePipeline.renderEditPreview`, that is `OffscreenRenderer.render` (the capture-gl
+context, Passes 0-4) with `recycleInput=false`, and shows the resulting bitmap in Compose. Renders are conflated (`collectLatest`: the newest parameters win)
+and the LUT bake runs on the GL thread, never on the main thread. The baked-LUT cache in `LutLoader` is bounded (40 entries) because sliders create many
+distinct adjusted looks.
+
+**Controls.** Look carousel (the camera's `LookPicker`), frame cycle (frames that force a ratio are skipped for half-frame/grid sources), date stamp, prism,
+shuffle (new seed), **exposure** slider +-1 EV and **temperature** slider +-0.5, both snapped to 0.05 and applied as `EditAdjust.apply(preset, ev, temp)`:
+`preset.copy(exposure += ev, temperature += t)` through the normal 33^3 bake, so preview and save are identical by construction. A new look seed is
+rolled when an import opens. Selecting a look resets frame and stamp to its defaults, as in the camera. The date stamp uses EXIF `DateTimeOriginal` of the
+import if present, otherwise now.
+
+**Save.** `CapturePipeline.processEdit(EditRequest)`: source decoded afresh per attempt (the renderer consumes it; the OOM retry at 2048 needs a smaller
+one), rendered at the cap through `OffscreenRenderer`, JPEG q92 + EXIF (`ExifWriter.plan`: original date kept, Orientation=1, Software, no GPS) into a NEW
+MediaStore row. The file name and `DATE_TAKEN` use the save time so the photo sorts first; stamp and EXIF keep the original date. The develop runs in
+`appScope`, so leaving the screen does not lose it. On success the Gallery opens on the new photo. Back is disabled while saving.
+
+**States.** Idle (no session, e.g. after process death: back to Camera) / Loading / Ready / Saving / Failed (open failed or negative missing: message and back).
+Preview and save errors show a snackbar and keep the editor open.
+
+### 6.8 In-app gallery (v1.1)
+- **Query** (`gallery/GalleryQuery`, pure and unit tested): rows of `Pictures/<SAVE_FOLDER>/` that **this install owns** (`OWNER_PACKAGE_NAME`), finished
+  (`IS_PENDING=0`), `DATE_TAKEN DESC, _ID DESC`, pages of 60. API 29 puts `LIMIT n OFFSET m` in the sort string; API 30+ rejects that and uses the query
+  `Bundle` (`QUERY_ARG_LIMIT/OFFSET`). **`READ_MEDIA_IMAGES` is never requested**; the manifest still declares CAMERA only.
+- **Grid**: adaptive cells, thumbnails from `ContentResolver.loadThumbnail` (256 px) with a 96-entry memory cache; next page when the last visible cell is within 12 of the end.
+- **Viewer**: full-screen `HorizontalPager`, decoded at screen scale (long side at most 2048, never full resolution). Actions: **Share**
+  (`ACTION_SEND`, `image/jpeg`, content URI + `ClipData`, `FLAG_GRANT_READ_URI_PERMISSION`, chooser), **Re-develop** (only when a negative exists), **Delete**.
+- **Delete**: API 30+ `MediaStore.createDeleteRequest` and `StartIntentSenderForResult`; `RESULT_OK` already means the row is gone. API 29: `ContentResolver.delete`,
+  on `RecoverableSecurityException` the user-action intent sender, then a retry. After a delete the negative of that photo is removed and the camera's last-shot thumbnail is refreshed.
+- **Entry**: ⋯ menu › Gallery, and the **last-shot thumbnail**, which now opens our viewer on that photo (no `ACTION_VIEW`).
+- **Empty state / after reinstall**: a reinstalled app no longer owns its old rows (S8), so the list is empty. The empty state explains it and offers
+  "Open in Photos" (`Intent.makeMainSelectorActivity(ACTION_MAIN, CATEGORY_APP_GALLERY)`, falling back to `ACTION_VIEW` on `image/*`).
+
+### 6.9 Negatives and re-develop (v1.1)
+Every saved photo also keeps its *negative* in app-private storage `filesDir/negatives/<mediaId>/` (`mediaId` = MediaStore `_ID`):
+- `source.jpg`: the decoded **upright** input as JPEG q95, long side at most 3072 (`NEGATIVE_LONG_SIDE`). Camera shot: the ViewPort crop rotated upright, **before** any
+  forced-ratio frame crop, so the frame can change later. Import / edit: the editor source as it is (copied, not re-encoded, when re-developing).
+  Half-frame and grid: the **composed** diptych / 2x2 bitmap (it is the graph's input). **Double exposure** has no neutral composite (the blend happens after
+  the colour pass), so it keeps shot 2 as `source.jpg` plus the developed first exposure as `blend.jpg` (q92) and re-develops with the same blend.
+- `settings.json` (`negatives/NegativeSettings`, kotlinx.serialization, `schemaVersion` = 1, unknown keys ignored, newer schema = not loadable): `lookId`, `seed`,
+  `grainTime`, `frame`, `dateStamp`, `stampTime`, `prism`, `gel` (effective gel after the flash-fired rule), `exposureEv`, `temperature`, `captureMode`
+  (`normal|double|half|grid|import`), source size, the copied EXIF tags, `hasBlend`, `createdAtMs`. It stores the look *id* plus the editor deltas, not a preset.
+  It is written last (temp file + rename) and is the commit marker.
+- **Written once, after a successful save**, in the develop queue (never per OOM attempt) and never failing the save; `Keep negatives` off skips it.
+- **Cap and LRU** (`negatives/NegativeLru`, pure): keep at most 200 entries and 1.5 GB; the least recently used (`settings.json` mtime, refreshed when a negative is opened) go first.
+  At startup negatives whose photo no longer exists are pruned (only when the id query succeeded and returned photos), then the cap applies.
+- **Delete**: deleting a photo in the gallery deletes its negative. A photo deleted elsewhere is cleaned at the next start.
+- **Re-develop**: viewer action opens the Editor on the negative with its saved settings (title "Re-develop"); the user may change look, frame, stamp, prism,
+  exposure and temperature and saves a NEW photo (new MediaStore row, new negative). The old photo and negative are untouched. The gel cannot be edited; it
+  stays as shot.
+- **Setting**: "Keep negatives" (⋯ menu, DataStore `keepNegatives`, default on).
 
 ## 7. Shader contract
 
@@ -458,6 +535,12 @@ pipeline stays.
 | D16 | prism lens = Pass 1 geometry effect in normalized units, user setting (not a look field), off in parity tests | Accepted | 2026-11-11 |
 | D17 | multi-lens grid = burst of 4 (150 ms), CPU 2x2 composite (gap 0.01 S) through the normal graph; no cancel once started | Accepted | 2026-11-11 |
 | D18 | languages: English (default) + French only, always the system language, no in-app picker; `localeConfig` lists en, fr; app-owned string names must not collide with library names (`state_on`/`state_off` renamed `toggle_on`/`toggle_off`, which had picked up the system "Désactivé") | Accepted (owner) | 2026-11-11 |
+| D19 | import = system Photo Picker (`PickVisualMedia(ImageOnly)`), `ImageDecoder` (applies EXIF orientation; `ExifOrientation` mapping only for the BitmapFactory fallback), capped at the capture render cap, working source re-encoded JPEG q95 without metadata | Accepted | 2026-11-11 |
+| D20 | editor preview = the capture-gl context and the same Passes 0-4 on a downsampled copy, shown as a bitmap in Compose (no third GL surface); sliders are `EditAdjust` deltas on the preset through the normal LUT bake; `LutLoader` baked cache bounded to 40 | Accepted | 2026-11-11 |
+| D21 | gallery = own rows only (`OWNER_PACKAGE_NAME` + `Pictures/<SAVE_FOLDER>/` + `IS_PENDING=0`), `DATE_TAKEN DESC, _ID DESC`, 60 per page (sort-string LIMIT on API 29, Bundle on 30+); no `READ_MEDIA_IMAGES`; reinstall = empty + "Open in Photos" (S8 Option B) | Accepted | 2026-11-11 |
+| D22 | delete = `createDeleteRequest` on API 30+, `delete` + `RecoverableSecurityException` flow on API 29; the negative goes with the photo | Accepted | 2026-11-11 |
+| D23 | negatives in `filesDir/negatives/<mediaId>/` (source.jpg q95 <= 3072 px upright pre-frame-crop, settings.json schemaVersion 1, optional blend.jpg); newest 200 / 1.5 GB, LRU by last open; written once after a successful save and never failing it; "Keep negatives" default on. Composite modes store the composed bitmap; double exposure stores shot 2 + the developed first exposure | Accepted | 2026-11-11 |
+| D24 | re-develop and import saves create a NEW photo whose file name and `DATE_TAKEN` are the save time (so it sorts first); the stamp and EXIF DateTimeOriginal keep the original date | Accepted | 2026-11-11 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |
@@ -467,6 +550,8 @@ pipeline stays.
 | R3 | 12 MP render too slow/hot on mid device | MINIMIZE_LATENCY, cap 4096, profile | B.5 |
 | R4 | bloom breaks parity | drop bloom from v1 | B |
 | R5 | trademark (app label, film names) | rename before release; own display names | C |
+| R6 | negatives grow storage / unexpected for users | cap 200 / 1.5 GB, LRU, "Keep negatives" off switch, removed with the photo | v1.1 |
+| R7 | `ImageDecoder` orientation behaviour differs per codec/OEM | `ExifOrientation` fallback path; on-device check of rotated JPEG/HEIC before release | v1.1 |
 
 ## 13. Delivery plan
 

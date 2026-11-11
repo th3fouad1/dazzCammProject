@@ -135,7 +135,7 @@
     <string name="menu_import">Importer une photo</string>
     <string name="menu_gallery">Galerie</string>
     <string name="menu_keep_negatives">Conserver les négatifs</string>
-    <string name="editor_title_import">Développer une photo</string>
+    <string name="editor_title_import">Développer</string>
     <string name="editor_title_redevelop">Redévelopper</string>
     <string name="editor_save">Enregistrer</string>
     <string name="editor_saving">Développement…</string>
