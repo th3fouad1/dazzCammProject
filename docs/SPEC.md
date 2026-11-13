@@ -760,3 +760,10 @@ B-002 verified: with HOME mid-recording the audio now ends before the last video
 - Owner report: the shutter felt slow compared with the system camera. Two causes: the self-timer was set to 3 s, and `MINIMIZE_LATENCY` takes a fresh still (~0.6 s after the tap, Appendix D).
 - Tried `CAPTURE_MODE_ZERO_SHUTTER_LAG` (`isZslSupported` = true, HAL reprocess confirmed). Same-scene A/B of the unfiltered sources: ZSL frames are visibly softer and smeared (ring-buffer frames), non-ZSL is sharper and cleaner. Owner then reported lower quality. **Reverted to `MINIMIZE_LATENCY`**; quality wins over shutter timing.
 - HDR / Night: CameraX Extensions report no mode on either lens, Camera2 `CameraExtensionCharacteristics` lists none. `CONTROL_SCENE_MODE` HDR (18) via Camera2Interop made the still capture fail (no file); NIGHT (5) gave the same exposure as no scene mode. OEM HDR/Night is not reachable by third-party apps on this phone, so any HDR/Night is the app's own multi-frame merge (planned, see BACKLOG B-003).
+
+## Appendix H — Preview stall during still capture (2026-11-13, OnePlus 11)
+- Benchmarker saw a 250–280 ms preview freeze per shot. With 6 shots 3 s apart: preview frame interval max 264–540 ms in the shot windows
+  while GPU-sync p95 stayed 14–18 ms, i.e. the camera stops delivering preview frames during the still capture (HAL), not GPU contention.
+- Tried a low-priority capture EGL context (`EGL_IMG_context_priority`, granted 0x3103): no change in the stall, reverted.
+- Only ZSL avoids it on this device and ZSL frames were softer (Appendix G), so the stall stays; the tap-time click and viewfinder blink
+  (commit ac466d4) cover it as shutter feedback.
