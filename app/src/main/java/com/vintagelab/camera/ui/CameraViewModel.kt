@@ -191,6 +191,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun onIntent(intent: CameraIntent) {
+        // SPEC 7.7: a boost burst owns the bound camera; anything that rebinds or changes flash waits for it.
+        if (_state.value.boostProgress != null && (intent is CameraIntent.SetMode || intent == CameraIntent.CycleFlash ||
+                intent == CameraIntent.ToggleLens || intent is CameraIntent.SetRatio || intent == CameraIntent.CycleBoost)) return
         when (intent) {
             is CameraIntent.SetMode -> setMode(intent.mode)
             is CameraIntent.SelectLook -> {

@@ -271,7 +271,7 @@ class CapturePipeline(
                 }
             }
             Log.i(TAG, "boost merge ${inputs.size} frames ${outW}x$outH shifts=${shifts.map { "%.1f,%.1f".format(it.dx * scale, it.dy * scale) }} " +
-                "meanWeight=%.2f in ${android.os.SystemClock.elapsedRealtime() - t0} ms".format(meanWeight))
+                "merged=%.0f in ${android.os.SystemClock.elapsedRealtime() - t0} ms".format(meanWeight))
             val sx = outW.toFloat() / ref.width
             val sy = outH.toFloat() / ref.height
             val c = ref.cropRect

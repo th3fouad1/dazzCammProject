@@ -20,7 +20,10 @@ class Fbo(val width: Int, val height: Int) {
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture, 0)
         val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-        check(status == GLES30.GL_FRAMEBUFFER_COMPLETE) { "FBO ${width}x$height incomplete: 0x${Integer.toHexString(status)}" }
+        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+            release()
+            error("FBO ${width}x$height incomplete: 0x${Integer.toHexString(status)}")
+        }
     }
 
     fun bind() {

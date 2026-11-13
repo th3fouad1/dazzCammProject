@@ -42,27 +42,30 @@ class MergeRenderer(private val readAsset: (String) -> String) {
     /**
      * [reference] is recycled after upload. [frames] are pulled one at a time so only one decoded
      * frame lives on the heap. Returns the merged ARGB_8888 bitmap (same size as the reference) and
-     * the mean accepted weight of the non-reference frames (0..1, for logging).
+     * the number of frames merged after the reference (for logging).
      */
     fun merge(reference: Bitmap, frames: Sequence<Frame>, gainEv: Float): Pair<Bitmap, Float> {
         ensure()
         val w = reference.width
         val h = reference.height
-        val ref = upload(reference)
-        reference.recycle()
-        var a = HalfFbo(w, h)
-        var b = HalfFbo(w, h)
-        val out = Fbo(w, h)
+        var ref = 0
+        var a: HalfFbo? = null
+        var b: HalfFbo? = null
+        var out: Fbo? = null
         var frameTex = 0
-        var weightSum = 0f
         var count = 0
         try {
+            ref = upload(reference)
+            reference.recycle()
+            a = HalfFbo(w, h)
+            b = HalfFbo(w, h)
+            out = Fbo(w, h)
             // Reference pass: acc = ref (weight 1).
             accumulate(a.framebuffer, w, h, accTex = 0, frameTex = ref, refTex = ref, shift = Align.Shift(0f, 0f), first = true)
             for (f in frames) {
                 frameTex = upload(f.bitmap)
                 f.bitmap.recycle()
-                accumulate(b.framebuffer, w, h, accTex = a.texture, frameTex = frameTex, refTex = ref, shift = f.shift, first = false)
+                accumulate(b!!.framebuffer, w, h, accTex = a!!.texture, frameTex = frameTex, refTex = ref, shift = f.shift, first = false)
                 Textures.delete(frameTex); frameTex = 0
                 val t = a; a = b; b = t
                 count++
@@ -71,18 +74,13 @@ class MergeRenderer(private val readAsset: (String) -> String) {
             val p = resolve!!
             out.bind()
             p.use()
-            bindTex(0, a.texture); p.set1i("uAcc", 0)
+            bindTex(0, a!!.texture); p.set1i("uAcc", 0)
             p.set1f("uGain", Math.pow(2.0, gainEv.toDouble()).toFloat())
             draw()
             val bytes = w * h * 4
             val buf = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
             GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 4)
             GLES30.glReadPixels(0, 0, w, h, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buf)
-            // Mean weight of the burst (alpha of the accumulator minus the reference), sampled at the centre.
-            val px = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder())
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, a.framebuffer)
-            GLES30.glReadPixels(w / 2, h / 2, 1, 1, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, px)
-            weightSum = halfToFloat(px.getShort(6)) - 1f
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
             val err = GLES30.glGetError()
             check(err == GLES30.GL_NO_ERROR) { "GL error 0x${Integer.toHexString(err)} during merge" }
@@ -90,11 +88,15 @@ class MergeRenderer(private val readAsset: (String) -> String) {
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             bmp.copyPixelsFromBuffer(buf)
             bmp.setHasAlpha(false)
-            return bmp to if (count > 0) weightSum / count else 0f
+            return bmp to count.toFloat()
         } finally {
+            if (!reference.isRecycled) reference.recycle()
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            for (u in 0..2) bindTex(u, 0)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
             Textures.delete(frameTex)
             Textures.delete(ref)
-            a.release(); b.release(); out.release()
+            a?.release(); b?.release(); out?.release()
         }
     }
 
@@ -177,19 +179,6 @@ class MergeRenderer(private val readAsset: (String) -> String) {
     }
 
     companion object {
-        fun halfToFloat(h: Short): Float {
-            val bits = h.toInt() and 0xFFFF
-            val s = bits ushr 15
-            val e = (bits ushr 10) and 0x1F
-            val m = bits and 0x3FF
-            val v = when (e) {
-                0 -> m / 1024f * Math.pow(2.0, -14.0).toFloat()
-                31 -> if (m == 0) Float.POSITIVE_INFINITY else Float.NaN
-                else -> (1f + m / 1024f) * Math.pow(2.0, (e - 15).toDouble()).toFloat()
-            }
-            return if (s == 1) -v else v
-        }
-
         private const val COMMON = """
 vec3 toLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
 vec3 toSrgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }

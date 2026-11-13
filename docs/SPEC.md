@@ -741,9 +741,19 @@ Risk R7 (ImageDecoder orientation / HEIC) closed.
 
 ## Appendix F — v2 device verification
 
-Pending the final gate run. If the OnePlus 11 is available over adb, record about five seconds in Tape, Reel 8, Mini DV and Silent 16, pull the rows from
-`/sdcard/Movies/<SAVE_FOLDER>/`, and record ffprobe codec, dimensions, average frame rate, audio codec and duration here. If it is not listed by `adb devices`,
-the release report must say "device not available" and R8/R9 remain open.
+Run 2026-11-13 on the OnePlus 11 (debug build, 4:3 portrait, indoor), ~5 s per look, ffprobe on the pulled files:
+
+| Clip | Video | Avg fps | Video dur | Audio | Audio dur |
+|---|---|---|---|---|---|
+| look 1 (Tape) | H.264 1080×1440 | 29.85 | 5.931 s | AAC | 5.845 s |
+| look 2 (Reel 8) | H.264 1080×1440 | 30.01 | 6.397 s | AAC | 6.272 s |
+| look 3 (Mini DV) | H.264 1080×1440 | 30.01 | 6.064 s | AAC | 6.016 s |
+| look 4 (Silent 16) | H.264 1080×1440 | 30.01 | 6.097 s | AAC | 6.016 s |
+| HOME during recording (B-002) | H.264 1080×1440 | 30.01 | 5.064 s | AAC | 5.013 s |
+
+Looks 2-4 were selected by swiping the viewfinder (carousel order), not verified by name per clip. All rows finalized (no pending row).
+R8 (encoder stalls) and R9 (A/V start skew) closed for the reference device: audio never outlasts video, start skew ≤ 0.13 s.
+B-002 verified: with HOME mid-recording the audio now ends before the last video frame (was +0.7 s).
 
 
 ## Appendix G — Zero shutter lag tried and reverted (2026-11-13, OnePlus 11)

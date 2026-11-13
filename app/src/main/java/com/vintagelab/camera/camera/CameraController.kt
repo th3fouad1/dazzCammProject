@@ -321,26 +321,41 @@ class CameraController(private val context: Context) {
             com.vintagelab.camera.perf.PerfLog.shotTap()
             sound.play(MediaActionSound.SHUTTER_CLICK)
             val t0 = System.nanoTime()
-            val out = kotlinx.coroutines.coroutineScope {
-                val pending = (0 until plan.frames).map { _ ->
-                    kotlinx.coroutines.CompletableDeferred<CaptureInput>().also { d -> captureInto(ic, d) }
+            val abandon = java.util.concurrent.atomic.AtomicBoolean(false)
+            val pending = (0 until plan.frames).map { kotlinx.coroutines.CompletableDeferred<CaptureInput>().also { d -> captureInto(ic, d, abandon) } }
+            try {
+                // Keep every frame that arrived: one failed request must not throw the others away.
+                val got = ArrayList<CaptureInput>()
+                var firstError: Throwable? = null
+                for ((i, d) in pending.withIndex()) {
+                    runCatching { d.await() }
+                        .onSuccess { got += it; onFrame(i + 1); Log.i(TAG, "burst frame ${i + 1} at ${(System.nanoTime() - t0) / 1_000_000} ms") }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; if (firstError == null) firstError = it; Log.w(TAG, "burst frame ${i + 1} failed", it) }
                 }
-                pending.mapIndexed { i, d -> d.await().also { onFrame(i + 1); Log.i(TAG, "burst frame ${i + 1} at ${(System.nanoTime() - t0) / 1_000_000} ms") } }
+                com.vintagelab.camera.perf.PerfLog.shotCaptured()
+                if (got.isEmpty()) throw firstError ?: IllegalStateException("burst produced no frames")
+                return got
+            } finally {
+                // Cancelled: callbacks still close their proxies but skip the JPEG copies.
+                abandon.set(true)
             }
-            com.vintagelab.camera.perf.PerfLog.shotCaptured()
-            return out
         } finally {
-            runCatching { c2.clearCaptureRequestOptions() }
-            if (exposure.isExposureCompensationSupported && idx != oldIndex) runCatching { cam.cameraControl.setExposureCompensationIndex(oldIndex) }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                runCatching { c2.clearCaptureRequestOptions().awaitFuture() }.onFailure { Log.w(TAG, "burst: clearing AE/AWB lock failed", it) }
+                if (exposure.isExposureCompensationSupported && idx != oldIndex) {
+                    runCatching { cam.cameraControl.setExposureCompensationIndex(oldIndex).awaitFuture() }.onFailure { Log.w(TAG, "burst: EV restore failed", it) }
+                }
+            }
         }
     }
 
-    private fun captureInto(ic: ImageCapture, d: kotlinx.coroutines.CompletableDeferred<CaptureInput>) {
+    private fun captureInto(ic: ImageCapture, d: kotlinx.coroutines.CompletableDeferred<CaptureInput>, abandon: java.util.concurrent.atomic.AtomicBoolean) {
         ic.takePicture(
             captureExecutor,
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
                     try {
+                        if (abandon.get()) { d.cancel(); return }
                         val buf = image.planes[0].buffer
                         val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
                         val c = image.cropRect
