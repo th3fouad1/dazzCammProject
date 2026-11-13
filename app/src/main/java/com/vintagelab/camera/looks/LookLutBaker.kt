@@ -36,7 +36,7 @@ object LookLutBaker {
             c[0] = ri * s; c[1] = gi * s; c[2] = bi * s
 
             if (preset.exposure != 0f) {
-                for (k in 0..2) c[k] = linearToSrgb(srgbToLinear(c[k]) * expGain)
+                for (k in 0..2) c[k] = linearToSrgb(exposeLinear(srgbToLinear(c[k]), expGain))
             }
             if (filmLut != null && preset.lutStrength > 0f) {
                 val r = c[0]; val g = c[1]; val b = c[2]
@@ -124,6 +124,16 @@ object LookLutBaker {
         c[2] += (t.color.b - tl) * k
         clamp01(c)
     }
+
+    /** Linear exposure with a soft shoulder for pushes: highlights roll off instead of clipping flat. */
+    fun exposeLinear(v: Float, gain: Float): Float {
+        val y = v * gain
+        if (gain <= 1f || y <= SHOULDER_KNEE) return y
+        val r = 1f - SHOULDER_KNEE
+        return SHOULDER_KNEE + r * (1f - kotlin.math.exp(-(y - SHOULDER_KNEE) / r))
+    }
+
+    private const val SHOULDER_KNEE = 0.75f
 
     private fun luma(c: FloatArray) = 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2]
 

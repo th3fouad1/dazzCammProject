@@ -115,7 +115,7 @@ CameraX Preview ─► SurfaceTexture (OES)            ImageCapture JPEG (in mem
 **Definition.** For the same normalized input, look and seed, the graph rendered at full resolution
 then area-downscaled matches the graph rendered at preview resolution:
 - grain disabled: mean abs diff ≤ 3/255 per channel, p99 ≤ 12/255;
-- grain enabled: 64×64 block luminance mean and std within ±5 %;
+- grain enabled: 64×64 block luminance mean within ±5 % (std not compared since D31: stills render grain on the output pixel grid, ~1.8 px cells, so it averages out when downscaled; preview/video keep the ≥ 4/1080 lattice);
 - vignette / leak / frame / chart-corner positions: shift ≤ 1 % of short side.
 
 ISP differences between the preview stream and ImageCapture, and flash, are outside parity.
@@ -591,6 +591,7 @@ pipeline stays.
 | D28 | audio = `AudioRecord` 48 kHz mono → AAC-LC 128 kbps; denial is a supported silent-recording path, and the permission is first requested at record | Accepted | 2026-11-11 |
 | D29 | video rows use `Movies/<SAVE_FOLDER>` + `IS_PENDING`; gallery queries both owned Pictures and Movies rows through MediaStore Files; `VideoView` avoids a new playback dependency | Accepted | 2026-11-11 |
 | D30 | video presets are `kind:"video"`, photo presets default to `kind:"photo"`; interlace-on-motion is omitted, as permitted, to protect the 30 fps budget | Accepted | 2026-11-11 |
+| D31 | Stills (short side > 1440) render grain on the output pixel grid (cell ≥ 1.8 px, coarser 0.47× octave, amplitude ×1.25) instead of upsampling the preview lattice; exposure pushes use a soft linear shoulder (knee 0.75) instead of a hard clip | Accepted (owner: "dir l-plan", quality review 2026-11-13) | 2026-11-13 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |

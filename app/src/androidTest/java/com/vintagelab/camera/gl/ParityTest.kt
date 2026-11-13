@@ -80,9 +80,11 @@ class ParityTest {
     }
 
     @Test
-    fun everyPreset_grainOn_blockStatsWithin5Percent() {
+    fun everyPreset_grainOn_blockMeanWithin5Percent() {
         for (p in presets.presets) {
             if (p.grain.amount <= 0f) continue
+            // Video looks never render at still resolution (their grain stays on the preview lattice).
+            if (p.kind != com.vintagelab.camera.looks.PresetKind.PHOTO) continue
             val full = downscale(render(p, fullW, fullH), fullW, fullH, prevW, prevH)
             val prev = render(p, prevW, prevH)
             var bad = 0
@@ -92,8 +94,9 @@ class ParityTest {
                 val b = blockStats(prev, bx, by)
                 total++
                 val meanOk = abs(a.first - b.first) <= 0.05 * maxOf(b.first, 1.0)
-                val stdOk = abs(a.second - b.second) <= 0.05 * maxOf(b.second, 1.0)
-                if (!meanOk || !stdOk) bad++
+                // Stills use pixel-scale grain (SPEC 5.1, D31): it averages out when downscaled, so only
+                // the block mean (tone) must match the preview; texture std is not compared.
+                if (!meanOk) bad++
             }
             assertTrue("${p.id}: $bad / $total blocks outside ±5 %", bad == 0)
         }

@@ -48,6 +48,6 @@ void main() {
     c = fxLeak(c, p, aspect, uLeak, uLeakPos);
     c = fxVignette(c, img, p, uVignette);
     c = fxDust(c, p, uDust, uSeed, uShortSide);
-    c = fxGrain(c, p, uGrain, uGrainTime, uSeed);
+    c = fxGrain(c, p, uGrain, uGrainTime, uSeed, uShortSide);
     FRAG_COLOR = vec4(clamp(c, 0.0, 1.0), 1.0);
 }
