@@ -491,6 +491,26 @@ The stamp glyphs are GLSL SDF/segment shapes; there is no font or copied camcord
 ### 7.6 Decisions (B3, B4)
 See D11-D18 in section 11.
 
+### 7.7 Boost: Night and HDR (B-003, 2026-11-13)
+OEM HDR/Night is not reachable (Appendix G), so the app merges a short burst itself. Top-bar control Off › Night › HDR
+(photo mode; hidden while double exposure / half-frame / grid is armed). Turning boost on turns the flash off and turning the
+flash on turns boost off: a boost burst never fires the flash.
+- **Burst** (`CameraController.takeBurst`): exposure compensation (HDR: -1.3 EV, rounded to the camera step), Night only:
+  `CONTROL_AE_TARGET_FPS_RANGE` with the lowest floor ≥ 10 fps (exposures up to 1/10 s); 600 ms AE settle, then AE + AWB lock,
+  150 ms, then N stills queued back to back (Night 6, HDR 5) at JPEG q100. Options and EV are restored in `finally`.
+  "Hold still n/N" shows on the viewfinder during the burst.
+- **Merge** (`CapturePipeline.mergeBurst`, `gl/MergeRenderer`): global sub-pixel translation per frame (coarse-to-fine SAD on a
+  ~1000 px luma decode, 4 levels, parabolic fit); frames linearized and accumulated into RGBA16F ping-pong targets (needs
+  `EXT_color_buffer_half_float`/`_float`, else the reference frame is used); per-pixel weight from the luma difference to the
+  reference at mip 3 (motion, misalignment) and at full resolution (moved edges); resolve divides by the weight sum, HDR
+  applies +1.3 EV with the D31 shoulder. Output: JPEG q100 + the reference frame's EXIF header, fed to the unchanged `process`.
+  Any merge failure (GPU, OOM) falls back to the reference frame.
+- Device (OnePlus 11, debug build, indoor evening, phone resting): burst 6 frames in 3.6 s (≈ 590 ms per still) after ~0.75 s
+  setup; merge 4.3–5.8 s in the develop queue (alignment ≈ 3 s of it, debug ART). Flat-patch high-pass noise of the unfiltered
+  source: single 1.86, Night 0.88–0.98, HDR 0.71; HDR shadows < 20/255 3.65 % → 3.10 %. No ghosting on a moving TV picture after
+  tightening the rejection thresholds.
+- Open: handheld bursts (3–4 s) need tile alignment for rotation; alignment in release builds is expected to be faster.
+
 ## 8. Behaviour & failure handling
 
 | feature / event | behaviour |
@@ -592,6 +612,7 @@ pipeline stays.
 | D29 | video rows use `Movies/<SAVE_FOLDER>` + `IS_PENDING`; gallery queries both owned Pictures and Movies rows through MediaStore Files; `VideoView` avoids a new playback dependency | Accepted | 2026-11-11 |
 | D30 | video presets are `kind:"video"`, photo presets default to `kind:"photo"`; interlace-on-motion is omitted, as permitted, to protect the 30 fps budget | Accepted | 2026-11-11 |
 | D31 | Stills (short side > 1440) render grain on the output pixel grid (cell ≥ 1.8 px, coarser 0.47× octave, amplitude ×1.25) instead of upsampling the preview lattice; exposure pushes use a soft linear shoulder (knee 0.75) instead of a hard clip | Accepted (owner: "dir l-plan", quality review 2026-11-13) | 2026-11-13 |
+| D32 | Night/HDR are an in-app burst merge (SPEC 7.7) with internal EV / AE-range / AE-AWB-lock control; the merge outputs a q100 JPEG so `process(input, settings)` stays frozen | Accepted (owner: "dir hdr oui w night mode") | 2026-11-13 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |

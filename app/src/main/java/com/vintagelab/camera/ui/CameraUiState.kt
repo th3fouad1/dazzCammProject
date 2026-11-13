@@ -104,6 +104,10 @@ data class CameraUiState(
     val developing: Int = 0,
     /** Bumped at every shutter press that takes a picture: drives the viewfinder blink. */
     val shutterSeq: Long = 0L,
+    /** SPEC 7.7: app-made Night / HDR burst (plain photos without flash). */
+    val boost: com.vintagelab.camera.capture.BoostMode = com.vintagelab.camera.capture.BoostMode.OFF,
+    /** Burst in progress: frames delivered / total ("hold still"); null otherwise. */
+    val boostProgress: Pair<Int, Int>? = null,
     /** SPEC 7.4: armed multi-shot mode and its progress (Off only with MultiMode.None). */
     val multiMode: MultiMode = MultiMode.None,
     val multiExposure: MultiExposure = MultiExposure.Off,
@@ -141,6 +145,7 @@ sealed interface CameraIntent {
     data object CancelTimer : CameraIntent
     data class SetFrame(val frame: FrameId) : CameraIntent
     data object ToggleDateStamp : CameraIntent
+    data object CycleBoost : CameraIntent
 
     /** SPEC 7.4 */
     data object ToggleDoubleExposure : CameraIntent
@@ -219,6 +224,10 @@ object CameraRules {
     fun gelVisible(s: CameraUiState): Boolean = s.flash != FlashMode.OFF && (if (s.lens == Lens.FRONT) s.caps.screenFlash else s.caps.hasFlashUnit)
 
     fun timerEnabled(s: CameraUiState): Boolean = s.captureState !is CaptureState.Countdown
+
+    /** SPEC 7.7: boost is for plain photos (no double exposure / half-frame / grid armed), not mid-shot. */
+    fun boostEnabled(s: CameraUiState): Boolean = s.mode == CameraMode.Photo && s.multiMode == com.vintagelab.camera.capture.MultiMode.None &&
+        s.captureState !is CaptureState.Countdown && s.captureState != CaptureState.Processing
 
     fun shutterEnabled(s: CameraUiState): Boolean = s.camera == CameraStatus.Ready &&
         if (s.mode == CameraMode.Video) s.recording.phase != RecordingPhase.Stopping

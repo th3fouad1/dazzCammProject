@@ -243,7 +243,19 @@ private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Uni
         LookToast(s.lookId, name, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
         CountdownNumeral(s.captureState, Modifier.align(Alignment.Center))
         ShutterBlink(s.shutterSeq, Modifier.fillMaxSize())
+        HoldStill(s.boostProgress, Modifier.align(Alignment.Center))
     }
+}
+
+/** SPEC 7.7: boost burst in progress. */
+@Composable
+private fun HoldStill(progress: Pair<Int, Int>?, modifier: Modifier) {
+    val p = progress ?: return
+    Text(
+        androidx.compose.ui.res.stringResource(com.vintagelab.camera.R.string.boost_hold_still, p.first, p.second),
+        style = VlType.lookToast, color = VlColors.Ink,
+        modifier = modifier.clip(RoundedCornerShape(50)).background(VlColors.VfScrim).padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
 
 /** Immediate shutter feedback at the tap (the still itself arrives ~0.6 s later from the camera). */

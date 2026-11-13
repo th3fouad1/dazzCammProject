@@ -110,6 +110,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private class ShotJob(
         val input: CaptureInput, val settings: CaptureSettings, val kind: ShotKind, val mode: MultiMode, val bgEpoch: Int,
         val burstId: Long = 0L, val index: Int = 0,
+        /** SPEC 7.7 boost burst: merged into [input]'s place by the develop queue. */
+        val burst: List<CaptureInput>? = null, val plan: com.vintagelab.camera.capture.BurstPlan? = null,
     )
 
     private val jobs = Channel<ShotJob>(capacity = 1)
@@ -173,6 +175,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                         else photoRatio,
                     flash = prefs[KEY_FLASH]?.let { f -> FlashMode.entries.firstOrNull { it.name == f } } ?: s.flash,
                     timer = prefs[KEY_TIMER]?.let { t -> TimerMode.entries.firstOrNull { it.name == t } } ?: s.timer,
+                    boost = prefs[KEY_BOOST]?.let { b -> com.vintagelab.camera.capture.BoostMode.entries.firstOrNull { it.name == b } } ?: s.boost,
                     frame = if (initialMode == CameraMode.Video) FrameId.NONE else photoFrame,
                     dateStamp = if (initialMode == CameraMode.Video) false else photoDateStamp,
                     flashGel = prefs[KEY_GEL]?.let { g -> FlashGel.entries.firstOrNull { it.name == g } } ?: s.flashGel,
@@ -209,7 +212,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             }
             CameraIntent.CycleFlash -> {
                 val next = CameraRules.nextFlash(_state.value.flash, _state.value.lens)
-                _state.update { it.copy(flash = next) }
+                // A boost burst needs the flash off (SPEC 7.7): turning the flash on turns boost off.
+                _state.update { it.copy(flash = next, boost = if (next != FlashMode.OFF) com.vintagelab.camera.capture.BoostMode.OFF else it.boost) }
                 controller.setFlash(next)
                 persist()
             }
@@ -228,6 +232,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             is CameraIntent.SetFrame -> {
                 if (!CameraRules.frameEnabled(_state.value)) return
                 _state.update { it.copy(frame = MultiShotRules.enforceFrame(it.multi, it.frame, intent.frame)) }
+                persist()
+            }
+            CameraIntent.CycleBoost -> {
+                if (!CameraRules.boostEnabled(_state.value)) return
+                val next = com.vintagelab.camera.capture.BoostRules.next(_state.value.boost)
+                _state.update { it.copy(boost = next, flash = if (next != com.vintagelab.camera.capture.BoostMode.OFF) FlashMode.OFF else it.flash) }
+                controller.setFlash(_state.value.flash)
                 persist()
             }
             CameraIntent.ToggleDateStamp -> {
@@ -618,6 +629,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             startGridBurst(settings, epoch)
             return
         }
+        if (kind == ShotKind.Normal && com.vintagelab.camera.capture.BoostRules.applies(s.boost, s.flash == FlashMode.OFF, mode)) {
+            startBoostBurst(settings, mode, epoch, com.vintagelab.camera.capture.BoostRules.plan(s.boost)!!)
+            return
+        }
         if (kind == ShotKind.Second) {
             // Reserve the pair atomically at the shutter: discard/toggles are rejected from now on.
             val m = MultiShotRules.beginSecond(s.multi)
@@ -648,12 +663,43 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** SPEC 7.7: hold-still burst, then one develop job that merges it. */
+    private fun startBoostBurst(settings: CaptureSettings, mode: MultiMode, epoch: Int, plan: com.vintagelab.camera.capture.BurstPlan) {
+        taking = true
+        _state.update { it.copy(lookSeed = Random.nextLong(), shutterSeq = it.shutterSeq + 1, boostProgress = 0 to plan.frames) }
+        publishCaptureState()
+        refreshPreviewLook()
+        viewModelScope.launch {
+            val inputs = try {
+                controller.takeBurst(plan) { n -> _state.update { it.copy(boostProgress = n to plan.frames) } }
+            } catch (e: CancellationException) {
+                taking = false
+                _state.update { it.copy(boostProgress = null) }
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "boost burst failed", e)
+                taking = false
+                _state.update { it.copy(boostProgress = null) }
+                fail(CaptureErrorKind.DevelopFailed)
+                return@launch
+            }
+            taking = false
+            _state.update { it.copy(boostProgress = null) }
+            outstanding++
+            publishCaptureState()
+            jobs.send(ShotJob(inputs.first(), settings, ShotKind.Normal, mode, epoch, burst = inputs, plan = plan))
+        }
+    }
+
     private suspend fun develop(job: ShotJob) {
         val pipeline = app.capturePipeline
         // Per-job failure boundary: a throwing job must never kill the queue consumer.
         val result: Result<Any?> = try {
             when (job.kind) {
-                ShotKind.Normal -> pipeline.process(job.input, job.settings)
+                ShotKind.Normal -> {
+                    val input = if (job.burst != null && job.plan != null) pipeline.mergeBurst(job.burst, job.plan) else job.input
+                    pipeline.process(input, job.settings)
+                }
                 ShotKind.First -> pipeline.processFirst(job.input, job.settings, job.mode)
                 ShotKind.Second -> pipeline.processSecond(job.input, job.settings, job.mode)
                 ShotKind.Grid -> pipeline.processGridCell(job.input, job.settings, job.burstId, job.index)
@@ -912,6 +958,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 p[KEY_RATIO] = photoRatio.name
                 p[KEY_FLASH] = s.flash.name
                 p[KEY_TIMER] = s.timer.name
+                p[KEY_BOOST] = s.boost.name
                 p[KEY_FRAME] = photoFrame.id
                 p[KEY_STAMP] = photoDateStamp
                 p[KEY_GEL] = s.flashGel.name
@@ -945,6 +992,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         val KEY_RATIO = stringPreferencesKey("ratio")
         val KEY_FLASH = stringPreferencesKey("flash")
         val KEY_TIMER = stringPreferencesKey("timer")
+        val KEY_BOOST = stringPreferencesKey("boost")
         val KEY_FRAME = stringPreferencesKey("frame")
         val KEY_STAMP = booleanPreferencesKey("dateStamp")
         val KEY_GEL = stringPreferencesKey("flashGel")

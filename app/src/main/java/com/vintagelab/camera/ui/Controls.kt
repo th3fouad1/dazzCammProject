@@ -198,6 +198,30 @@ fun TimerButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
     ) { onIntent(CameraIntent.SetTimer(TimerMode.entries[(s.timer.ordinal + 1) % TimerMode.entries.size])) }
 }
 
+/** SPEC 7.7: Off › Night › HDR. Hidden while a multi-shot mode is armed. */
+@Composable
+fun BoostButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
+    if (s.multiMode != MultiMode.None) return
+    val st = stringResource(
+        when (s.boost) {
+            com.vintagelab.camera.capture.BoostMode.OFF -> R.string.state_boost_off
+            com.vintagelab.camera.capture.BoostMode.NIGHT -> R.string.state_boost_night
+            com.vintagelab.camera.capture.BoostMode.HDR -> R.string.state_boost_hdr
+        },
+    )
+    val on = s.boost != com.vintagelab.camera.capture.BoostMode.OFF
+    ControlButton(
+        stringResource(R.string.cd_boost), st, on, enabled = CameraRules.boostEnabled(s),
+        icon = when (s.boost) {
+            com.vintagelab.camera.capture.BoostMode.OFF -> VlIcons.Moon
+            com.vintagelab.camera.capture.BoostMode.NIGHT -> VlIcons.MoonOn
+            com.vintagelab.camera.capture.BoostMode.HDR -> null
+        },
+        text = if (s.boost == com.vintagelab.camera.capture.BoostMode.HDR) stringResource(R.string.label_boost_hdr) else null,
+        iconTint = if (on) VlColors.Amber else VlColors.Ink,
+    ) { onIntent(CameraIntent.CycleBoost) }
+}
+
 @Composable
 fun RatioButton(s: CameraUiState, onIntent: (CameraIntent) -> Unit) {
     val (label, st) = when (s.ratio) {
@@ -321,6 +345,7 @@ fun ControlBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNa
         if (s.mode == CameraMode.Photo) {
             FlashButton(s, onIntent)
             TimerButton(s, onIntent)
+            BoostButton(s, onIntent)
             RatioButton(s, onIntent)
             FrameButton(s, onIntent)
             DateStampButton(s, onIntent)
@@ -591,7 +616,7 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
             )
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 if (s.mode == CameraMode.Photo) {
-                    FlashButton(s, onIntent); TimerButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
+                    FlashButton(s, onIntent); TimerButton(s, onIntent); BoostButton(s, onIntent); RatioButton(s, onIntent); FrameButton(s, onIntent); DateStampButton(s, onIntent)
                 }
             }
             if (s.mode == CameraMode.Photo) CaptureModeButtons(s, onIntent)

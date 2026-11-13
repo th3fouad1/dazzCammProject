@@ -283,6 +283,88 @@ class CameraController(private val context: Context) {
         }
     }
 
+    /**
+     * Boost burst (SPEC 7.7): optional exposure compensation and long-exposure AE range, AE/AWB
+     * locked, then [plan].frames stills queued back to back. Always restores the camera state.
+     * [onFrame] reports progress (frames delivered so far).
+     */
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    suspend fun takeBurst(plan: com.vintagelab.camera.capture.BurstPlan, onFrame: (Int) -> Unit): List<CaptureInput> {
+        val cam = camera ?: throw IllegalStateException("camera not bound")
+        val ic = imageCapture ?: throw IllegalStateException("camera not bound")
+        val c2 = androidx.camera.camera2.interop.Camera2CameraControl.from(cam.cameraControl)
+        val exposure = cam.cameraInfo.exposureState
+        val oldIndex = exposure.exposureCompensationIndex
+        val idx = com.vintagelab.camera.capture.BoostRules.evIndex(
+            plan.ev, exposure.exposureCompensationStep.toFloat(), exposure.exposureCompensationRange.lower, exposure.exposureCompensationRange.upper,
+        )
+        val fps = if (plan.longExposure) nightFpsRange(cam) else null
+        Log.i(TAG, "burst frames=${plan.frames} evIndex=$idx fps=$fps")
+        try {
+            if (exposure.isExposureCompensationSupported && idx != oldIndex) cam.cameraControl.setExposureCompensationIndex(idx).awaitFuture()
+            if (fps != null) {
+                c2.setCaptureRequestOptions(
+                    androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+                        .setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, android.util.Range(fps.first, fps.second))
+                        .build(),
+                ).awaitFuture()
+            }
+            kotlinx.coroutines.delay(if (fps != null || idx != oldIndex) AE_SETTLE_MS else 120L)
+            c2.setCaptureRequestOptions(
+                androidx.camera.camera2.interop.CaptureRequestOptions.Builder().apply {
+                    if (fps != null) setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, android.util.Range(fps.first, fps.second))
+                    setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_LOCK, true)
+                    setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AWB_LOCK, true)
+                }.build(),
+            ).awaitFuture()
+            kotlinx.coroutines.delay(LOCK_SETTLE_MS)
+            com.vintagelab.camera.perf.PerfLog.shotTap()
+            sound.play(MediaActionSound.SHUTTER_CLICK)
+            val t0 = System.nanoTime()
+            val out = kotlinx.coroutines.coroutineScope {
+                val pending = (0 until plan.frames).map { _ ->
+                    kotlinx.coroutines.CompletableDeferred<CaptureInput>().also { d -> captureInto(ic, d) }
+                }
+                pending.mapIndexed { i, d -> d.await().also { onFrame(i + 1); Log.i(TAG, "burst frame ${i + 1} at ${(System.nanoTime() - t0) / 1_000_000} ms") } }
+            }
+            com.vintagelab.camera.perf.PerfLog.shotCaptured()
+            return out
+        } finally {
+            runCatching { c2.clearCaptureRequestOptions() }
+            if (exposure.isExposureCompensationSupported && idx != oldIndex) runCatching { cam.cameraControl.setExposureCompensationIndex(oldIndex) }
+        }
+    }
+
+    private fun captureInto(ic: ImageCapture, d: kotlinx.coroutines.CompletableDeferred<CaptureInput>) {
+        ic.takePicture(
+            captureExecutor,
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(image: ImageProxy) {
+                    try {
+                        val buf = image.planes[0].buffer
+                        val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                        val c = image.cropRect
+                        d.complete(CaptureInput(bytes, image.imageInfo.rotationDegrees, IntRect(c.left, c.top, c.right, c.bottom), image.width, image.height))
+                    } catch (t: Throwable) {
+                        d.completeExceptionally(t)
+                    } finally {
+                        image.close()
+                    }
+                }
+
+                override fun onError(exception: ImageCaptureException) { d.completeExceptionally(exception) }
+            },
+        )
+    }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun nightFpsRange(cam: Camera): Pair<Int, Int>? {
+        val info = androidx.camera.camera2.interop.Camera2CameraInfo.from(cam.cameraInfo)
+        val ranges = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            ?.map { it.lower to it.upper } ?: return null
+        return com.vintagelab.camera.capture.BoostRules.nightFpsRange(ranges)
+    }
+
     fun unbind() {
         provider?.unbindAll()
         camera = null
@@ -298,6 +380,15 @@ class CameraController(private val context: Context) {
     }
 
     private companion object {
+        const val AE_SETTLE_MS = 600L
+        const val LOCK_SETTLE_MS = 150L
         const val TAG = "CameraController"
     }
 }
+
+private suspend fun <T> com.google.common.util.concurrent.ListenableFuture<T>.awaitFuture(): T =
+    suspendCancellableCoroutine { cont ->
+        addListener({
+            runCatching { get() }.fold({ cont.resume(it) }, { cont.resumeWithException(it.cause ?: it) })
+        }, Runnable::run)
+    }

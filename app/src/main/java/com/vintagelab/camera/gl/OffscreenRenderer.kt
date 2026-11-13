@@ -108,6 +108,21 @@ class OffscreenRenderer(
         }
     }
 
+    private var merger: MergeRenderer? = null
+
+    /** Boost merge support (RGBA16F render targets). */
+    suspend fun mergeSupported(): Boolean = withContext(dispatcher) {
+        ensure()
+        (merger ?: MergeRenderer(readAsset).also { merger = it }).supported()
+    }
+
+    /** SPEC 7.7: merges a boost burst on the capture context; see [MergeRenderer.merge]. */
+    suspend fun merge(reference: Bitmap, frames: Sequence<MergeRenderer.Frame>, gainEv: Float): Pair<Bitmap, Float> = withContext(dispatcher) {
+        ensure()
+        graph?.trimMemory() // free the look graph's targets: the merge needs two RGBA16F canvases
+        (merger ?: MergeRenderer(readAsset).also { merger = it }).merge(reference, frames, gainEv)
+    }
+
     /** Drops the intermediate targets (onTrimMemory / OOM retry). */
     suspend fun trim() = withContext(dispatcher) {
         graph?.trimMemory()
@@ -132,6 +147,8 @@ class OffscreenRenderer(
         Handler(thread.looper).post {
             graph?.release()
             graph = null
+            merger?.release()
+            merger = null
             egl?.release()
             egl = null
             thread.quitSafely()

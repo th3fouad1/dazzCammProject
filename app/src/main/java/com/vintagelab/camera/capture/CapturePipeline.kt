@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.content.ContentUris
 import android.net.Uri
 import android.util.Log
+import com.vintagelab.camera.gl.MergeRenderer
 import com.vintagelab.camera.gl.OffscreenRenderer
 import com.vintagelab.camera.looks.CropMath
 import com.vintagelab.camera.looks.IntRect
@@ -38,7 +39,11 @@ class CaptureInput(
     val cropRect: IntRect,
     val width: Int,
     val height: Int,
-)
+    /** Where EXIF / flash state is read from when [jpeg] was produced by the app (boost merge): the reference frame's header. */
+    val exifJpeg: ByteArray? = null,
+) {
+    val meta: ByteArray get() = exifJpeg ?: jpeg
+}
 
 /** Immutable snapshot of everything frozen at shutter time, after the timer (K17a). */
 data class CaptureSettings(
@@ -116,7 +121,7 @@ class CapturePipeline(
     suspend fun processGridCell(input: CaptureInput, settings: CaptureSettings, burstId: Long, index: Int): Result<Uri?> {
         if (!bursts.isLive(burstId)) return Result.failure(GridAborted())
         val last = index == GridComposite.COLS * GridComposite.ROWS - 1
-        val exifSource = if (last) ExifWriter.readSource(input.jpeg) else emptyMap()
+        val exifSource = if (last) ExifWriter.readSource(input.meta) else emptyMap()
         val exif = if (last) ExifWriter.plan(exifSource, settings.software, settings.time) else emptyMap()
         val state = if (last) withGel(input, settings) else settings.state
         var neg: NegSource? = null
@@ -216,8 +221,93 @@ class CapturePipeline(
         }
     }
 
+    /**
+     * SPEC 7.7: merges a boost burst into one camera-like input (JPEG q100 of the merge, EXIF header
+     * of the reference frame) for the normal [process] path. Falls back to the reference frame when
+     * the GPU cannot merge or memory runs out, so a boost shot never fails harder than a normal one.
+     */
+    suspend fun mergeBurst(inputs: List<CaptureInput>, plan: BurstPlan): CaptureInput {
+        val ref = inputs.first()
+        if (inputs.size < 2) return ref
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        return try {
+            if (!renderer.mergeSupported()) {
+                Log.w(TAG, "boost merge unsupported (no RGBA16F targets); using the reference frame")
+                return ref
+            }
+            val limits = renderer.limits()
+            val cap = renderCap()
+            val tA = android.os.SystemClock.elapsedRealtime()
+            var tLuma = 0L
+            val (alignW, shifts) = withContext(Dispatchers.Default) {
+                var t = android.os.SystemClock.elapsedRealtime()
+                val refL = alignLuma(ref.jpeg)
+                tLuma += android.os.SystemClock.elapsedRealtime() - t
+                refL.w to inputs.drop(1).map {
+                    t = android.os.SystemClock.elapsedRealtime()
+                    val l = alignLuma(it.jpeg)
+                    tLuma += android.os.SystemClock.elapsedRealtime() - t
+                    Align.estimate(refL, l)
+                }
+            }
+            val tB = android.os.SystemClock.elapsedRealtime()
+            Log.i(TAG, "boost align ${tB - tA} ms (luma decode $tLuma ms)")
+            val refBmp = withContext(Dispatchers.Default) { decode(ref.jpeg, cap, limits.maxTexture) }
+            val scale = refBmp.width.toFloat() / alignW
+            val outW = refBmp.width
+            val outH = refBmp.height
+            val frames = inputs.drop(1).asSequence().mapIndexed { i, f ->
+                val s = shifts[i]
+                MergeRenderer.Frame(decode(f.jpeg, cap, limits.maxTexture), Align.Shift(s.dx * scale, s.dy * scale))
+            }
+            val tC = android.os.SystemClock.elapsedRealtime()
+            val (merged, meanWeight) = renderer.merge(refBmp, frames, plan.gainEv)
+            Log.i(TAG, "boost gpu merge (incl. full decodes) ${android.os.SystemClock.elapsedRealtime() - tC} ms")
+            val jpeg = withContext(Dispatchers.Default) {
+                try {
+                    java.io.ByteArrayOutputStream(8 shl 20).also { merged.compress(Bitmap.CompressFormat.JPEG, 100, it) }.toByteArray()
+                } finally {
+                    merged.recycle()
+                }
+            }
+            Log.i(TAG, "boost merge ${inputs.size} frames ${outW}x$outH shifts=${shifts.map { "%.1f,%.1f".format(it.dx * scale, it.dy * scale) }} " +
+                "meanWeight=%.2f in ${android.os.SystemClock.elapsedRealtime() - t0} ms".format(meanWeight))
+            val sx = outW.toFloat() / ref.width
+            val sy = outH.toFloat() / ref.height
+            val c = ref.cropRect
+            CaptureInput(
+                jpeg, ref.rotationDegrees,
+                IntRect((c.left * sx).toInt(), (c.top * sy).toInt(), (c.right * sx).toInt(), (c.bottom * sy).toInt()),
+                outW, outH,
+                exifJpeg = ref.jpeg.copyOf(minOf(ref.jpeg.size, EXIF_HEADER_BYTES)),
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "boost merge failed; using the reference frame", t)
+            runCatching { renderer.trim() }
+            ref
+        }
+    }
+
+    private fun alignLuma(jpeg: ByteArray): Luma {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= ALIGN_LONG_SIDE) sample *= 2
+        val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: throw IllegalStateException("JPEG decode failed")
+        val px = IntArray(bmp.width * bmp.height)
+        bmp.getPixels(px, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        val v = FloatArray(px.size) { i ->
+            val p = px[i]
+            (0.2126f * ((p shr 16) and 0xFF) + 0.7152f * ((p shr 8) and 0xFF) + 0.0722f * (p and 0xFF)) / 255f
+        }
+        return Luma(bmp.width, bmp.height, v).also { bmp.recycle() }
+    }
+
     suspend fun process(input: CaptureInput, settings: CaptureSettings): Result<Uri> {
-        val exifSource = ExifWriter.readSource(input.jpeg)
+        val exifSource = ExifWriter.readSource(input.meta)
         val exif = ExifWriter.plan(exifSource, settings.software, settings.time)
         val state = withGel(input, settings)
         return guarded { cap, maxTexture ->
@@ -250,7 +340,7 @@ class CapturePipeline(
     /** Shot 2: combines it with the stored first (screen blend or diptych), applies grain/frame/stamp once, saves. */
     suspend fun processSecond(input: CaptureInput, settings: CaptureSettings, mode: MultiMode): Result<Uri> {
         require(mode != MultiMode.None)
-        val exifSource = ExifWriter.readSource(input.jpeg)
+        val exifSource = ExifWriter.readSource(input.meta)
         val exif = ExifWriter.plan(exifSource, settings.software, settings.time)
         val state = withGel(input, settings)
         var neg: NegSource? = null
@@ -292,7 +382,7 @@ class CapturePipeline(
 
     private fun withGel(input: CaptureInput, settings: CaptureSettings): LookState =
         settings.state.copy(
-            gel = FlashGel.effective(settings.state.gel, ExifWriter.flashFired(input.jpeg), settings.screenFlash),
+            gel = FlashGel.effective(settings.state.gel, ExifWriter.flashFired(input.meta), settings.screenFlash),
         )
 
     /** Runs [body] at the memory-budgeted cap, retrying once at [RETRY_LONG_SIDE] on OOM. */
@@ -558,6 +648,12 @@ class CapturePipeline(
         const val NEGATIVE_LONG_SIDE = 3072
         const val NEGATIVE_BLEND_QUALITY = 92
         const val MAX_LONG_SIDE = 4096
+
+        /** Alignment works on a ~1000 px decode (sub-pixel there is ~0.5 px at 12 MP). */
+        const val ALIGN_LONG_SIDE = 1000
+
+        /** The reference frame's EXIF lives in its first segments; keep only this much of it. */
+        const val EXIF_HEADER_BYTES = 192 * 1024
 
         /** Long-side cap of the stored first exposure (SPEC 7.4): keeps a third buffer affordable. */
         const val STORE_LONG_SIDE = 3072

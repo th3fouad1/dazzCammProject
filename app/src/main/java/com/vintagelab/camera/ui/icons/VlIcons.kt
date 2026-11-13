@@ -77,6 +77,13 @@ object VlIcons {
         stroke { moveTo(20f, 12f); arcTo(8f, 8f, 0f, false, true, 5.5f, 16.5f); moveTo(5.5f, 16.5f); lineTo(5.2f, 20f); moveTo(5.5f, 16.5f); lineTo(9f, 16.8f) }
         fill { circle(12f, 12f, 1.5f) }
     }
+    /** Crescent: boost Night (outline = off, filled = on). */
+    val Moon = icon("Moon") {
+        stroke { moveTo(14.5f, 3.5f); arcTo(8.5f, 8.5f, 0f, true, false, 20.5f, 14.5f); arcTo(6.8f, 6.8f, 0f, false, true, 14.5f, 3.5f); close() }
+    }
+    val MoonOn = icon("MoonOn") {
+        fill { moveTo(14.5f, 3.5f); arcTo(8.5f, 8.5f, 0f, true, false, 20.5f, 14.5f); arcTo(6.8f, 6.8f, 0f, false, true, 14.5f, 3.5f); close() }
+    }
     val More = icon("More") { fill { circle(12f, 5f, 1.5f); circle(12f, 12f, 1.5f); circle(12f, 19f, 1.5f) } }
     val Back = icon("Back") { stroke { moveTo(20f, 12f); lineTo(4f, 12f); moveTo(10f, 6f); lineTo(4f, 12f); lineTo(10f, 18f) } }
     val Chevron = icon("Chevron") { stroke { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) } }

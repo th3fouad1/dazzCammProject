@@ -182,4 +182,10 @@
     <string name="viewer_share">Share</string>
     <string name="viewer_delete">Delete</string>
     <string name="viewer_redevelop">Re-develop</string>
+    <string name="cd_boost">Night and HDR</string>
+    <string name="state_boost_off">Off</string>
+    <string name="state_boost_night">Night</string>
+    <string name="state_boost_hdr">HDR</string>
+    <string name="label_boost_hdr">HDR</string>
+    <string name="boost_hold_still">Hold still… %1$d/%2$d</string>
 </resources>
