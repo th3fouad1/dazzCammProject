@@ -242,7 +242,21 @@ private fun ViewfinderOverlays(s: CameraUiState, onIntent: (CameraIntent) -> Uni
         ZoomPill({ state.zoomRatio }, s, onIntent, Modifier.align(Alignment.BottomCenter).padding(12.dp))
         LookToast(s.lookId, name, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
         CountdownNumeral(s.captureState, Modifier.align(Alignment.Center))
+        ShutterBlink(s.shutterSeq, Modifier.fillMaxSize())
     }
+}
+
+/** Immediate shutter feedback at the tap (the still itself arrives ~0.6 s later from the camera). */
+@Composable
+private fun ShutterBlink(seq: Long, modifier: Modifier) {
+    if (seq == 0L) return
+    val alpha = remember { Animatable(0f) }
+    val reduced = LocalReducedMotion.current
+    LaunchedEffect(seq) {
+        alpha.snapTo(if (reduced) 0.35f else 0.75f)
+        alpha.animateTo(0f, androidx.compose.animation.core.tween(if (reduced) 120 else 180))
+    }
+    if (alpha.value > 0f) Box(modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = alpha.value)))
 }
 
 @Composable

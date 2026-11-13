@@ -102,6 +102,8 @@ data class CameraUiState(
     val imagePortrait: Boolean = true,
     /** Shots taken but not yet saved (0..2); drives the thumbnail "developing" pulse. */
     val developing: Int = 0,
+    /** Bumped at every shutter press that takes a picture: drives the viewfinder blink. */
+    val shutterSeq: Long = 0L,
     /** SPEC 7.4: armed multi-shot mode and its progress (Off only with MultiMode.None). */
     val multiMode: MultiMode = MultiMode.None,
     val multiExposure: MultiExposure = MultiExposure.Off,

@@ -122,6 +122,8 @@ class CameraController(private val context: Context) {
         val captureUseCase = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setOutputFormat(ImageCapture.OUTPUT_FORMAT_JPEG)
+            // The app decodes and re-encodes once, so the camera JPEG is only an intermediate: keep it lossless-ish.
+            .setJpegQuality(100)
             .setTargetRotation(displayRotation)
             .setResolutionSelector(
                 ResolutionSelector.Builder()
@@ -243,12 +245,16 @@ class CameraController(private val context: Context) {
     suspend fun takePicture(): CaptureInput {
         val ic = imageCapture ?: throw IllegalStateException("camera not bound")
         com.vintagelab.camera.perf.PerfLog.shotTap()
+        // Click at the tap like the system camera; only when flash may fire does it wait for the
+        // real capture start (precapture can take a while and the click marks the flash).
+        val clickAtTap = ic.flashMode == ImageCapture.FLASH_MODE_OFF
+        if (clickAtTap) sound.play(MediaActionSound.SHUTTER_CLICK)
         return suspendCancellableCoroutine { cont ->
             ic.takePicture(
                 captureExecutor,
                 object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureStarted() {
-                        sound.play(MediaActionSound.SHUTTER_CLICK)
+                        if (!clickAtTap) sound.play(MediaActionSound.SHUTTER_CLICK)
                     }
 
                     override fun onCaptureSuccess(image: ImageProxy) {

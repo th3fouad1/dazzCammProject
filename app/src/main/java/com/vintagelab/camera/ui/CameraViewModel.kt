@@ -624,7 +624,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             _state.update { it.copy(multiExposure = m.phase) }
         }
         taking = true
-        _state.update { it.copy(lookSeed = Random.nextLong()) }
+        _state.update { it.copy(lookSeed = Random.nextLong(), shutterSeq = it.shutterSeq + 1) }
         publishCaptureState()
         refreshPreviewLook()
         viewModelScope.launch {
