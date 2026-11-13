@@ -68,6 +68,50 @@ class AudioPtsMapper(
     companion object { const val DROP = -1L }
 }
 
+/**
+ * Keeps the audio track from outlasting the video track (backlog B-002). An audio sample is released
+ * only once video has reached its PTS; samples ahead of video are held. When video ends, held samples
+ * up to the last video PTS plus one frame are released and the rest dropped. Not thread-safe: the
+ * drain thread owns it.
+ */
+class AudioTailGate<T>(private val frameDurationUs: Long = 1_000_000L / VideoLimits.FRAME_RATE) {
+    private val held = ArrayDeque<Pair<Long, T>>()
+    private var lastVideoUs = Long.MIN_VALUE
+    private var videoEnded = false
+
+    /** Returns the samples (including [sample], if it may be written now) to write, in PTS order. */
+    fun onAudio(ptsUs: Long, sample: T): List<T> {
+        if (videoEnded) return if (ptsUs <= endLimitUs()) listOf(sample) else emptyList()
+        held.addLast(ptsUs to sample)
+        return releaseUpTo(lastVideoUs)
+    }
+
+    /** Call after writing a video sample; returns held audio that may now be written. */
+    fun onVideo(ptsUs: Long): List<T> {
+        if (ptsUs > lastVideoUs) lastVideoUs = ptsUs
+        return releaseUpTo(lastVideoUs)
+    }
+
+    /** Video EOS: returns the held tail that fits within the video; the remainder is dropped. */
+    fun onVideoEnd(): List<T> {
+        videoEnded = true
+        val out = releaseUpTo(endLimitUs())
+        held.clear()
+        return out
+    }
+
+    val heldCount: Int get() = held.size
+
+    private fun endLimitUs(): Long = if (lastVideoUs == Long.MIN_VALUE) Long.MIN_VALUE else lastVideoUs + frameDurationUs
+
+    private fun releaseUpTo(limitUs: Long): List<T> {
+        if (held.isEmpty() || held.first().first > limitUs) return emptyList()
+        val out = ArrayList<T>()
+        while (held.isNotEmpty() && held.first().first <= limitUs) out += held.removeFirst().second
+        return out
+    }
+}
+
 object VideoLimits {
     const val MAX_DURATION_MS = 3L * 60L * 1000L
     const val FRAME_RATE = 30

@@ -305,6 +305,17 @@ class VideoRecorder(
             var audioEos = audio == null
             val pendingSamples = ArrayList<Sample>()
             var wroteVideo = false
+            // B-002: audio past the last video frame (camera stops before the stop request) is trimmed.
+            val tailGate = AudioTailGate<Sample>()
+            fun emit(sample: Sample) {
+                if (!muxerStarted) {
+                    pendingSamples += sample
+                    return
+                }
+                val track = if (sample.track == TRACK_VIDEO) videoTrack else audioTrack
+                muxer!!.writeSampleData(track, ByteBuffer.wrap(sample.data), sample.info)
+                if (sample.track == TRACK_VIDEO) wroteVideo = true
+            }
             try {
                 muxer = MediaMuxer(pending.pfd.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4).apply { setOrientationHint(0) }
                 val vi = MediaCodec.BufferInfo()
@@ -328,16 +339,21 @@ class VideoRecorder(
                                     val bytes = ByteArray(info.size)
                                     buffer.get(bytes)
                                     val copy = MediaCodec.BufferInfo().apply { set(0, bytes.size, info.presentationTimeUs, info.flags) }
-                                    val track = if (trackKind == TRACK_VIDEO) videoTrack else audioTrack
-                                    if (muxerStarted) {
-                                        muxer!!.writeSampleData(track, ByteBuffer.wrap(bytes), copy)
-                                        if (trackKind == TRACK_VIDEO) wroteVideo = true
-                                    } else pendingSamples += Sample(trackKind, bytes, copy)
+                                    val sample = Sample(trackKind, bytes, copy)
+                                    if (trackKind == TRACK_VIDEO) {
+                                        emit(sample)
+                                        tailGate.onVideo(copy.presentationTimeUs).forEach(::emit)
+                                    } else {
+                                        tailGate.onAudio(copy.presentationTimeUs, sample).forEach(::emit)
+                                    }
                                 }
                                 val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                                 codec.releaseOutputBuffer(index, false)
                                 if (eos) {
-                                    if (trackKind == TRACK_VIDEO) videoEos = true else audioEos = true
+                                    if (trackKind == TRACK_VIDEO) {
+                                        videoEos = true
+                                        tailGate.onVideoEnd().forEach(::emit)
+                                    } else audioEos = true
                                 }
                                 return true
                             }

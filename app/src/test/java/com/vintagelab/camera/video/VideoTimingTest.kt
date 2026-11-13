@@ -109,4 +109,34 @@ class VideoTimingTest {
         RecordingTeardown(detachEgl = { }, finalize = { m++ }).apply { request(); onDetached(); onDetached() }
         assertEquals(1, m)
     }
+
+    @Test fun tailGateHoldsAudioAheadOfVideoAndReleasesInOrder() {
+        val g = AudioTailGate<String>(frameDurationUs = 33_333)
+        assertEquals(emptyList<String>(), g.onAudio(0, "a0")) // no video yet
+        assertEquals(listOf("a0"), g.onVideo(10_000))
+        assertEquals(listOf("a1"), g.onAudio(5_000, "a1"))
+        assertEquals(emptyList<String>(), g.onAudio(21_000, "a2"))
+        assertEquals(emptyList<String>(), g.onAudio(42_000, "a3"))
+        assertEquals(listOf("a2", "a3"), g.onVideo(43_333))
+        assertEquals(0, g.heldCount)
+    }
+
+    @Test fun tailGateDropsAudioPastLastVideoFrame() {
+        val g = AudioTailGate<String>(frameDurationUs = 33_333)
+        g.onVideo(1_000_000)
+        // camera stopped delivering frames; audio kept running ~0.7 s
+        val tail = (1..35).map { i -> 1_000_000L + i * 21_333L }
+        tail.forEach { assertEquals(emptyList<String>(), g.onAudio(it, "t$it")) }
+        val kept = g.onVideoEnd()
+        assertEquals(listOf("t1021333"), kept) // only within last frame + one frame duration
+        assertEquals(0, g.heldCount)
+        assertEquals(emptyList<String>(), g.onAudio(2_000_000, "late"))
+        assertEquals(listOf("ok"), g.onAudio(1_030_000, "ok"))
+    }
+
+    @Test fun tailGateWithoutVideoDropsEverything() {
+        val g = AudioTailGate<String>()
+        g.onAudio(0, "a")
+        assertEquals(emptyList<String>(), g.onVideoEnd())
+    }
 }
