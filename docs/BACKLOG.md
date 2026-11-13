@@ -11,3 +11,9 @@
 - Pressing HOME while recording saves a valid MP4, but audio runs ~0.7 s past the last video frame (camera stops delivering frames before the stop reaches the recorder).
 - Fix: on stop, drop/trim AAC samples with PTS > last written video PTS (or stop AudioRecord at the camera-close event).
 - Done: `AudioTailGate` (video/VideoTiming.kt) holds AAC samples ahead of the last written video PTS and drops those past last video PTS + one frame at video EOS. Unit tests in VideoTimingTest. Device check: HOME while recording, ffprobe audio vs video duration within ~35 ms.
+
+## B-003 — Own HDR and Night modes (owner request 2026-11-13)
+- OEM HDR/Night is not exposed on the OnePlus 11 (SPEC Appendix G), so build an in-app multi-frame merge that outputs a replacement `CaptureInput` (render graph and `process(input, settings)` unchanged).
+- Night first: N same-exposure frames (sequential `takePicture`, measure interval), low-res global alignment, per-pixel rejection against the reference, GPU accumulation one frame at a time (check half-float render targets). HDR second: underexposed burst merge + shadow lift, reusing align/merge.
+- Verify bracketing really changes exposure before merge code. Excluded with flash, grid, double exposure, half-frame, video. UI shows "hold still" with the measured time.
+- Acceptance on device: flat-patch noise below a single frame, no ghosting on moving TV picture. Exposure control stays internal (manual ISO/shutter remains a non-goal, SPEC 3.3).

@@ -68,7 +68,6 @@ class CameraController(private val context: Context) {
     private var owner: LifecycleOwner? = null
     private var lens = Lens.BACK
     private var flash = FlashMode.OFF
-    private var zslBound = false
     private var screenFlash: ImageCapture.ScreenFlash? = null
     private val mainExecutor = ContextCompat.getMainExecutor(context)
     private val captureExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "capture-io") }
@@ -93,7 +92,6 @@ class CameraController(private val context: Context) {
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
     }
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalZeroShutterLag::class)
     suspend fun bind(
         owner: LifecycleOwner,
         lens: Lens,
@@ -121,13 +119,8 @@ class CameraController(private val context: Context) {
             .setTargetRotation(displayRotation)
             .build()
         previewUseCase.setSurfaceProvider(mainExecutor, surfaceProvider)
-        // Zero shutter lag: the picture is taken from the camera's ring buffer at the tap (like the
-        // system camera) instead of a new ~600 ms ISP capture. CameraX falls back to a normal capture
-        // by itself when flash fires.
-        val zsl = runCatching { p.getCameraInfo(selector).isZslSupported }.getOrDefault(false)
-        Log.i(TAG, "bind lens=$useLens zsl=$zsl")
         val captureUseCase = ImageCapture.Builder()
-            .setCaptureMode(if (zsl) ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG else ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setOutputFormat(ImageCapture.OUTPUT_FORMAT_JPEG)
             .setTargetRotation(displayRotation)
             .setResolutionSelector(
@@ -164,7 +157,6 @@ class CameraController(private val context: Context) {
         camera = cam
         preview = previewUseCase
         imageCapture = captureUseCase
-        zslBound = zsl
         this.surfaceProvider = surfaceProvider
         setFlash(flash)
         cam.cameraInfo.cameraState.removeObservers(owner)
@@ -251,15 +243,12 @@ class CameraController(private val context: Context) {
     suspend fun takePicture(): CaptureInput {
         val ic = imageCapture ?: throw IllegalStateException("camera not bound")
         com.vintagelab.camera.perf.PerfLog.shotTap()
-        // With ZSL and no flash the frame is the one on screen at the tap: click now, not ~0.5 s later.
-        val clickAtTap = zslBound && ic.flashMode == ImageCapture.FLASH_MODE_OFF
-        if (clickAtTap) sound.play(MediaActionSound.SHUTTER_CLICK)
         return suspendCancellableCoroutine { cont ->
             ic.takePicture(
                 captureExecutor,
                 object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureStarted() {
-                        if (!clickAtTap) sound.play(MediaActionSound.SHUTTER_CLICK)
+                        sound.play(MediaActionSound.SHUTTER_CLICK)
                     }
 
                     override fun onCaptureSuccess(image: ImageProxy) {

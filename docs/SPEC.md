@@ -724,7 +724,7 @@ Pending the final gate run. If the OnePlus 11 is available over adb, record abou
 the release report must say "device not available" and R8/R9 remain open.
 
 
-## Appendix G — Zero shutter lag (2026-11-13, OnePlus 11)
-- Owner report: the shutter felt slow compared with the system camera. Cause: `MINIMIZE_LATENCY` issues a fresh still capture (~625 ms ISP, Appendix D), so the picture was taken ~0.6 s after the tap.
-- Change: `CAPTURE_MODE_ZERO_SHUTTER_LAG` when `CameraInfo.isZslSupported` (else `MINIMIZE_LATENCY`); CameraX falls back to a normal capture when flash fires. Shutter click plays at the tap when ZSL is bound and flash is off.
-- Device: `zsl=true` on the back camera, HAL logs `createReprocessCaptureRequest` / `ZSLReprocess…`, so the frame comes from the ring buffer at the tap. Delivery (tap→ImageProxy) 511–534 ms (HAL reprocess + JPEG), total 1.05–1.32 s; 8 of 8 taps 3 s apart saved; output 2996×3994, visually equal to MINIMIZE_LATENCY.
+## Appendix G — Zero shutter lag tried and reverted (2026-11-13, OnePlus 11)
+- Owner report: the shutter felt slow compared with the system camera. Two causes: the self-timer was set to 3 s, and `MINIMIZE_LATENCY` takes a fresh still (~0.6 s after the tap, Appendix D).
+- Tried `CAPTURE_MODE_ZERO_SHUTTER_LAG` (`isZslSupported` = true, HAL reprocess confirmed). Same-scene A/B of the unfiltered sources: ZSL frames are visibly softer and smeared (ring-buffer frames), non-ZSL is sharper and cleaner. Owner then reported lower quality. **Reverted to `MINIMIZE_LATENCY`**; quality wins over shutter timing.
+- HDR / Night: CameraX Extensions report no mode on either lens, Camera2 `CameraExtensionCharacteristics` lists none. `CONTROL_SCENE_MODE` HDR (18) via Camera2Interop made the still capture fail (no file); NIGHT (5) gave the same exposure as no scene mode. OEM HDR/Night is not reachable by third-party apps on this phone, so any HDR/Night is the app's own multi-frame merge (planned, see BACKLOG B-003).
