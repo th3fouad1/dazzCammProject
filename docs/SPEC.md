@@ -39,14 +39,14 @@ phone's gallery within ~2.5 s.
 6. In-app "Open-source licenses" screen (t3mujinpack MIT).
 
 ### 3.2 Deferred
-Accessories (overlay effects imitating physical lens add-ons), billing, video import and video re-development.
+Accessories (overlay effects imitating physical lens add-ons), video import and video re-development. (Billing and ads were delivered on 2026-11-14: see §4.1 to §4.3.)
 
 **Delivered in v1.1 (owner decision D7, review S8/S9 Option B):** photo import and editor (§6.7), in-app gallery (§6.8), re-develop from stored
 negatives (§6.9). Out of scope for v1.1: batch import, video import, cropping/rotating in the editor, cloud backup of negatives, editing photos not saved by this app
 other than by importing them.
 
 ### 3.3 Non-goals
-RAW, manual ISO/shutter, accounts/cloud, ads/analytics, user-editable presets,
+RAW, manual ISO/shutter, accounts/cloud, analytics/crash SDKs, user-editable presets,
 reproducing any specific third-party app's exact looks or UI.
 
 ### 3.4 v1 looks
@@ -73,7 +73,10 @@ the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes 
 
 ## 4. Privacy & Play
 
-- No INTERNET permission, no analytics/crash/ads SDKs. Data Safety: no data collected or shared.
+- **Changed 2026-11-14 (owner, D33):** the app now ships AdMob, UMP, Play Billing and Firebase Remote Config, so it has INTERNET, ACCESS_NETWORK_STATE and
+  `com.google.android.gms.permission.AD_ID` (merged from the SDKs). No analytics or crash SDK. Data Safety must declare what the Google Mobile Ads SDK collects
+  (device or other IDs, app interactions, diagnostics; shared with Google for advertising; encrypted in transit). Photos, videos, negatives and audio still never
+  leave the device. A privacy policy URL is required before release.
 - Permissions: CAMERA (runtime) only. **minSdk 29** (owner decision D8) → no storage permission ever. v1.1 import uses the system Photo Picker and the gallery
   lists only rows this install owns, so `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` are never requested.
 - **Negatives stay on the device** (v1.1, §6.9): the re-develop source and its settings live in app-private `filesDir`, are never uploaded or shared, are removed with
@@ -88,6 +91,48 @@ the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes 
   layout must survive landscape/multi-window (large-screen orientation locks are ignored).
 - Release prerequisites (Mobile Release Engineer, Phase C): privacy policy page, content rating,
   16 KB page alignment check, listing must not name other camera apps.
+
+### 4.1 Looks lock (2026-11-14)
+- `presets.json` field `"locked": true` (default false). Locked: `ccd2`, `slide`, `premium`, `toy120`, `tlr`, `square`, `fine_mono`, `pano` (photo) and `dv`, `bw16` (video).
+  Free: `classic35`, `disposable`, `instant`, `ccd`, `bw400`, `fisheye`, `vhs`, `super8`. The default photo and video looks are free.
+- A locked look **previews freely** (carousel, viewfinder, editor). It carries a PRO badge. Only taking a picture, starting a video or the editor's Save is gated.
+  Selecting a look (tap or scroll settle) never opens anything.
+- Gate: `Entitlements.canShoot` = not locked, or Pro, or a rewarded unlock that has not expired. Until the cached entitlement has loaded (a few ms at start) nothing is
+  blocked. The gate runs in the view models (`CameraViewModel.shutter`/`videoShutter`, `EditorViewModel.save`), so the hardware shutter key and timers are covered.
+- Gated press → unlock dialog: "Watch ad" (rewarded; unlocks that look for `reward_unlock_hours`, default 24), "Get Pro", "Not now". If no rewarded ad can be had
+  within 6 s (offline, no fill) the look is unlocked anyway (`reward_fallback_grant`, default true).
+- Unlocks and the last Pro state live in the `monetize` DataStore. The Pro flag is a cache; Play Billing's purchase query is the truth (§4.3).
+
+### 4.2 Ads (2026-11-14)
+- **Never on the camera screen** and never over a photo. A full-screen ad stops the camera (`onStop`), so none is shown while recording, during a boost burst,
+  a countdown or while a shot is developing.
+- **Consent:** UMP `requestConsentInfoUpdate` + `loadAndShowConsentFormIfRequired` once per process, posted after the first frame; `MobileAds.initialize` runs on IO
+  only when `canRequestAds()`. "Privacy options" appears in the menu only when UMP says it is required.
+- **Pro users load no ads at all**; becoming Pro drops the loaded ones.
+- Formats:
+
+| format | where | rules (Remote Config key, default) |
+|---|---|---|
+| Rewarded | unlock dialog | preloaded; `reward_unlock_hours` 24, `reward_fallback_grant` true |
+| Interstitial | before opening the gallery from the camera, and after an editor save (before the viewer) | every Nth action `interstitial_click_interval` 3, at least `interstitial_min_seconds` 180 s apart, none in the first `interstitial_grace_sessions` 1 session, preloaded |
+| Banner | bottom of the gallery grid only | anchored adaptive, `show_banner` true |
+| Native | gallery grid, one full-width card after every `native_every` 15 photos (none if fewer, none at the end) | 3 loaded per gallery visit and reused; "Ad" badge; AdChoices top right; destroyed when the gallery closes |
+| App Open | warm start only | `app_open_enabled` true; background >= `app_open_min_background_seconds` 30 s; >= `app_open_min_interval_seconds` 240 s after any full-screen ad; never on a cold start, never over the UMP form, never when the app returns from its own activity (Photo Picker, share sheet, delete request, Play purchase sheet, an ad), detected by overriding `startActivityForResult` / `startIntentSenderForResult` in `MainActivity`; expires 4 h after load |
+
+- All knobs plus `ads_enabled` (kill switch) come from Firebase Remote Config when `app/google-services.json` exists (the Gradle plugin is applied only then);
+  without it the in-code defaults above apply.
+- AdMob IDs: debug builds always use Google's public test IDs. Release builds read `admob.appId`, `admob.banner`, `admob.interstitial`, `admob.rewarded`,
+  `admob.native`, `admob.appOpen` from `-P`, `gradle.properties`, `local.properties` or the matching env var (`ADMOB_APPID`, ...), and fall back to test IDs
+  (`BuildConfig.TEST_ADS` is then true).
+
+### 4.3 Pro (2026-11-14)
+- Pro = every look + no ads. Play products (create with these exact ids): subscription `pro_subscription` with base plans `monthly` and `yearly` (a free-trial offer
+  on `yearly` is optional; the app picks a trial offer when Play lists one as eligible), and one-time product `pro_lifetime`.
+- Prices are set in Play Console (with regional pricing) and shown from `ProductDetails`; the code holds no price. Recommended pricing, pending the owner (2026-11-14): monthly 3.99 USD,
+  yearly 14.99 USD, lifetime 29.99 USD.
+- `BillingManager`: billing 9 with pending purchases for one-time products and auto-reconnection; acknowledges every purchased item; re-queries purchases on each
+  warm start. A purchase callback only grants Pro; only a full query can remove it (expired, refunded). Pending payments show a notice.
+- Real purchases can only be tested once the app is on a Play Console testing track with license testers (Phase C).
 
 ## 5. Pipeline & parity (the hard constraint)
 
@@ -298,6 +343,8 @@ Preview and save errors show a snackbar and keep the editor open.
 - **Entry**: ⋯ menu › Gallery, and the **last-shot thumbnail**, which now opens our viewer on that photo (no `ACTION_VIEW`).
 - **Empty state / after reinstall**: a reinstalled app no longer owns its old rows (S8), so the list is empty. The empty state explains it and offers
   "Open in Photos" (`Intent.makeMainSelectorActivity(ACTION_MAIN, CATEGORY_APP_GALLERY)`, falling back to `ACTION_VIEW` on `image/*`).
+- **Zoom (2026-11-14)**: photo pages pinch-zoom 1x to 5x around the fingers, pan while zoomed (clamped to the photo edges) and double-tap to 2.5x / back to fit.
+  While zoomed the pager does not swipe; leaving the page resets it. From 1.6x the page re-decodes at up to 4096 px (only the current page) so detail stays sharp.
 
 ### 6.9 Negatives and re-develop (v1.1)
 Every saved photo also keeps its *negative* in app-private storage `filesDir/negatives/<mediaId>/` (`mediaId` = MediaStore `_ID`):
@@ -613,6 +660,7 @@ pipeline stays.
 | D30 | video presets are `kind:"video"`, photo presets default to `kind:"photo"`; interlace-on-motion is omitted, as permitted, to protect the 30 fps budget | Accepted | 2026-11-11 |
 | D31 | Stills (short side > 1440) render grain on the output pixel grid (cell ≥ 1.8 px, coarser 0.47× octave, amplitude ×1.25) instead of upsampling the preview lattice; exposure pushes use a soft linear shoulder (knee 0.75) instead of a hard clip | Accepted (owner: "dir l-plan", quality review 2026-11-13) | 2026-11-13 |
 | D32 | Night/HDR are an in-app burst merge (SPEC 7.7) with internal EV / AE-range / AE-AWB-lock control; the merge outputs a q100 JPEG so `process(input, settings)` stays frozen | Accepted (owner: "dir hdr oui w night mode") | 2026-11-13 |
+| D33 | monetization: rewarded unlocks + interstitial/banner/native/App Open (§4.2) + Pro subscription and lifetime (§4.3); 10 of 18 looks locked (§4.1); INTERNET and the AD_ID permission accepted; global market | Accepted (owner: "market global, nzido ads w dir internet", "bda sprint Ads w dir hta premium") | 2026-11-14 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |

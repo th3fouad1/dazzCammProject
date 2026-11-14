@@ -30,10 +30,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.navigationBars
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -108,6 +110,18 @@ fun GalleryScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var viewer by remember { mutableIntStateOf(-1) }
+    val monetize = com.vintagelab.camera.monetize.rememberMonetize()
+    val adCfg by monetize.remote.config.collectAsStateWithLifecycle()
+    val ent by monetize.entitlements.state.collectAsStateWithLifecycle()
+    val adsReady by monetize.ads.ready.collectAsStateWithLifecycle()
+    val adsOn = adsReady && adCfg.adsEnabled && ent.loaded && !ent.pro
+    // SPEC 4.2: a few native ads per gallery visit, reused across slots; destroyed when the gallery closes or the user goes Pro.
+    val natives = remember { androidx.compose.runtime.mutableStateListOf<com.google.android.gms.ads.nativead.NativeAd>() }
+    LaunchedEffect(adsOn, adCfg.nativeEvery) {
+        if (adsOn && adCfg.nativeEvery > 0 && natives.isEmpty()) monetize.ads.loadNatives(3) { natives += it }
+        if (!adsOn) { natives.forEach { it.destroy() }; natives.clear() }
+    }
+    DisposableEffect(Unit) { onDispose { natives.forEach { it.destroy() }; natives.clear() } }
     var focusDone by remember(focus) { mutableStateOf(focus == null) }
 
     // Open the viewer on the requested photo once the list contains it.
@@ -179,8 +193,12 @@ fun GalleryScreen(
                 when {
                     !state.loaded -> CircularProgressIndicator(color = VlColors.Amber, modifier = Modifier.align(Alignment.Center))
                     state.items.isEmpty() -> EmptyState(context)
-                    else -> Grid(state, vm, onOpen = { viewer = it })
+                    else -> Grid(state, vm, natives, adCfg.nativeEvery, onOpen = { viewer = it })
                 }
+            }
+            // SPEC 4.2: banner under the grid only (never on the camera or over a photo).
+            if (adsOn && adCfg.showBanner) {
+                com.vintagelab.camera.monetize.BannerAd(Modifier.windowInsetsPadding(WindowInsets.navigationBars))
             }
         }
         if (viewer >= 0 && state.items.isNotEmpty()) {
@@ -228,20 +246,44 @@ private fun openPhotosApp(context: android.content.Context): Boolean {
 }
 
 @Composable
-private fun Grid(state: GalleryState, vm: GalleryViewModel, onOpen: (Int) -> Unit) {
+private fun Grid(
+    state: GalleryState, vm: GalleryViewModel, natives: List<com.google.android.gms.ads.nativead.NativeAd>, nativeEvery: Int, onOpen: (Int) -> Unit,
+) {
     val grid = rememberLazyGridState()
-    LaunchedEffect(grid, state.items.size) {
+    // Grid positions include native ad cards; photo indices (viewer, load-more, "photo n") never do.
+    val entries = remember(state.items.size, natives.size, nativeEvery) {
+        com.vintagelab.camera.monetize.GalleryAds.entries(state.items.size, nativeEvery, natives.isNotEmpty())
+    }
+    LaunchedEffect(grid, state.items.size, entries) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
-            if (last >= state.items.size - 12) vm.loadMore()
+            if (com.vintagelab.camera.monetize.GalleryAds.photoIndexAt(entries, last) >= state.items.size - 12) vm.loadMore()
         }
     }
     LazyVerticalGrid(
         GridCells.Adaptive(110.dp), Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), grid,
         horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        itemsIndexed(state.items, key = { _, it -> it.id }) { i, item ->
-            val cd = stringResource(if (item.isVideo) R.string.cd_video_n else R.string.cd_photo_n, i + 1)
-            Thumb(item, Modifier.aspectRatio(1f).clickable(role = Role.Button) { onOpen(i) }.semantics { contentDescription = cd })
+        items(
+            entries.size,
+            key = { p ->
+                when (val e = entries[p]) {
+                    is com.vintagelab.camera.monetize.GridEntry.Photo -> state.items[e.index].id
+                    is com.vintagelab.camera.monetize.GridEntry.Ad -> "ad-${e.slot}"
+                }
+            },
+            span = { p -> if (entries[p] is com.vintagelab.camera.monetize.GridEntry.Ad) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
+        ) { p ->
+            when (val e = entries[p]) {
+                is com.vintagelab.camera.monetize.GridEntry.Photo -> {
+                    val i = e.index
+                    val item = state.items[i]
+                    val cd = stringResource(if (item.isVideo) R.string.cd_video_n else R.string.cd_photo_n, i + 1)
+                    Thumb(item, Modifier.aspectRatio(1f).clickable(role = Role.Button) { onOpen(i) }.semantics { contentDescription = cd })
+                }
+                is com.vintagelab.camera.monetize.GridEntry.Ad -> natives.getOrNull(e.slot % natives.size.coerceAtLeast(1))?.let {
+                    com.vintagelab.camera.monetize.NativeAdCard(it, Modifier.padding(vertical = 4.dp, horizontal = 2.dp))
+                }
+            }
         }
     }
 }

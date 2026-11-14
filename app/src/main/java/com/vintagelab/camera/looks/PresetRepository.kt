@@ -123,6 +123,7 @@ private class PresetReader(val id: String, val obj: JsonObject, val log: PresetL
                 PresetKind.fromId(it) ?: run { log.warn("$id: unknown kind '$it'"); null }
             } ?: d.kind,
             displayNameRes = string(obj, "displayNameRes") ?: d.displayNameRes,
+            locked = bool(obj, "locked", d.locked),
             lut = string(obj, "lut"),
             lutStrength = num(obj, "lutStrength", d.lutStrength, 0f, 1f),
             exposure = num(obj, "exposure", d.exposure, -2f, 2f),

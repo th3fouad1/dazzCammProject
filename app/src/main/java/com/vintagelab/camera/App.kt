@@ -27,6 +27,8 @@ class App : Application() {
     val gallery: GalleryRepository by lazy { GalleryRepository(contentResolver, packageName) }
     val videoRecorder: VideoRecorder by lazy { VideoRecorder(contentResolver, packageName) }
     val negatives: NegativeStore by lazy { NegativeStore(java.io.File(filesDir, "negatives")) }
+    /** SPEC 4.1-4.3: looks lock, ads and Pro. */
+    val monetize: com.vintagelab.camera.monetize.Monetize by lazy { com.vintagelab.camera.monetize.Monetize(this, appScope) }
 
     /** "Keep negatives" setting (SPEC 6.9); loaded from DataStore by the view model, on by default. */
     @Volatile

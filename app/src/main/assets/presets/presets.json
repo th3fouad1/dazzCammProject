@@ -321,6 +321,7 @@
     },
     {
       "id": "ccd2",
+      "locked": true,
       "displayNameRes": "look_ccd2",
       "lut": "fuji_superia_200",
       "lutStrength": 0.6,
@@ -546,6 +547,7 @@
     },
     {
       "id": "slide",
+      "locked": true,
       "displayNameRes": "look_slide",
       "lut": "fuji_velvia_50",
       "lutStrength": 0.85,
@@ -623,6 +625,7 @@
     },
     {
       "id": "premium",
+      "locked": true,
       "displayNameRes": "look_premium",
       "lut": "kodak_portra_400",
       "lutStrength": 1.0,
@@ -696,6 +699,7 @@
     },
     {
       "id": "toy120",
+      "locked": true,
       "displayNameRes": "look_toy120",
       "lut": "fuji_superia_200",
       "lutStrength": 1.0,
@@ -777,6 +781,7 @@
     },
     {
       "id": "tlr",
+      "locked": true,
       "displayNameRes": "look_tlr",
       "lut": "kodak_ektar_100",
       "lutStrength": 1.0,
@@ -854,6 +859,7 @@
     },
     {
       "id": "square",
+      "locked": true,
       "displayNameRes": "look_square",
       "lut": "fuji_provia_100f",
       "lutStrength": 1.0,
@@ -929,6 +935,7 @@
     },
     {
       "id": "fine_mono",
+      "locked": true,
       "displayNameRes": "look_fine_mono",
       "lut": "ilford_delta_100",
       "lutStrength": 1.0,
@@ -1002,6 +1009,7 @@
     },
     {
       "id": "pano",
+      "locked": true,
       "displayNameRes": "look_pano",
       "lut": "kodak_ektar_100",
       "lutStrength": 0.9,
@@ -1119,6 +1127,7 @@
     },
     {
       "id": "dv",
+      "locked": true,
       "kind": "video",
       "displayNameRes": "look_dv",
       "lut": "kodak_ultra_max_400",
@@ -1136,6 +1145,7 @@
     },
     {
       "id": "bw16",
+      "locked": true,
       "kind": "video",
       "displayNameRes": "look_bw16",
       "lut": "kodak_tri_x_400",

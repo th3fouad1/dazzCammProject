@@ -166,7 +166,7 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
     val shape = RoundedCornerShape(VlRadius.Card)
     val border = if (selected) 2.dp else 1.dp
     val borderColor = if (selected) VlColors.Amber else VlColors.Hairline
-    val cd = androidx.compose.ui.res.stringResource(R.string.cd_look_suffix, name)
+    val cd = androidx.compose.ui.res.stringResource(if (look.locked) R.string.cd_look_locked else R.string.cd_look_suffix, name)
     val base = modifier
         .clip(shape)
         .background(VlColors.Raised)
@@ -174,7 +174,10 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
         .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
         .semantics { contentDescription = cd }
     if (compact) {
-        LookSwatch(look.id, base.size(56.dp).padding(4.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
+        androidx.compose.foundation.layout.Box(base.size(56.dp).padding(4.dp)) {
+            LookSwatch(look.id, Modifier.matchParentSize().clip(RoundedCornerShape(VlRadius.Swatch)))
+            if (look.locked) ProBadge(Modifier.align(Alignment.TopEnd))
+        }
         return
     }
     val nameRow: @Composable (Float) -> Unit = { availDp ->
@@ -192,15 +195,32 @@ private fun LookCard(look: LookUi, selected: Boolean, compact: Boolean, landscap
     }
     if (landscape) {
         Row(base.size(LABEL_CARD_LANDSCAPE_W.dp, 72.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            LookSwatch(look.id, Modifier.size(48.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
+            androidx.compose.foundation.layout.Box(Modifier.size(48.dp)) {
+                LookSwatch(look.id, Modifier.matchParentSize().clip(RoundedCornerShape(VlRadius.Swatch)))
+                if (look.locked) ProBadge(Modifier.align(Alignment.TopEnd))
+            }
             Spacer(Modifier.width(4.dp))
             nameRow(LABEL_CARD_LANDSCAPE_W - 8f - 48f - 4f)
         }
     } else {
         Column(base.size(LABEL_CARD_PORTRAIT_W.dp, 88.dp).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            LookSwatch(look.id, Modifier.size(64.dp).clip(RoundedCornerShape(VlRadius.Swatch)))
+            androidx.compose.foundation.layout.Box(Modifier.size(64.dp)) {
+                LookSwatch(look.id, Modifier.matchParentSize().clip(RoundedCornerShape(VlRadius.Swatch)))
+                if (look.locked) ProBadge(Modifier.align(Alignment.TopEnd))
+            }
             Spacer(Modifier.size(4.dp))
             nameRow(LABEL_CARD_PORTRAIT_W - 8f)
         }
     }
+}
+
+/** SPEC 4.1: marks a look that needs Pro or a rewarded unlock to take pictures. */
+@Composable
+private fun ProBadge(modifier: Modifier) {
+    Text(
+        androidx.compose.ui.res.stringResource(R.string.look_pro_badge),
+        color = VlColors.Bench, fontSize = 8.sp, maxLines = 1,
+        style = VlType.labelEngraved.copy(fontSize = 8.sp),
+        modifier = modifier.padding(2.dp).clip(RoundedCornerShape(3.dp)).background(VlColors.Amber).padding(horizontal = 3.dp),
+    )
 }

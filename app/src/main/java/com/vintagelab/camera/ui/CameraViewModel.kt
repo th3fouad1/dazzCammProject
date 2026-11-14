@@ -169,7 +169,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 s.copy(
                     mode = initialMode,
                     looks = repo.presetsFor(if (initialMode == CameraMode.Video) PresetKind.VIDEO else PresetKind.PHOTO)
-                        .map { LookUi(it.id, it.displayNameRes, it.lightLeak.probability > 0f || it.dust > 0f) },
+                        .map { lookUi(it) },
                     lookId = lookId,
                     ratio = if (initialMode == CameraMode.Video) preset.video.aspect.toAspectRatio()
                         else photoRatio,
@@ -188,6 +188,30 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             rebindIfNeeded()
         }
         app.appScope.launch { for (job in jobs) develop(job) }
+        // SPEC 4.1: lock badges follow Pro and rewarded unlocks.
+        viewModelScope.launch {
+            app.monetize.entitlements.state.collect { e ->
+                val repo = presets ?: return@collect
+                _state.update { s -> s.copy(looks = s.looks.map { l -> l.copy(locked = !canShoot(repo.get(l.id), e)) }) }
+            }
+        }
+    }
+
+    private fun canShoot(p: com.vintagelab.camera.looks.Preset, e: com.vintagelab.camera.monetize.Entitlements = app.monetize.entitlements.state.value) =
+        !e.loaded || e.canShoot(p) // before the cached entitlement loads (a few ms), never block
+
+    private fun lookUi(p: com.vintagelab.camera.looks.Preset) =
+        LookUi(p.id, p.displayNameRes, p.lightLeak.probability > 0f || p.dust > 0f, locked = !canShoot(p))
+
+    /** Photo and video looks together (the Pro screen's count). */
+    fun lookCount(): Int = presets?.presets?.size ?: 0
+
+    /** SPEC 4.1: true (and the unlock dialog opens) when the current look may not take a picture now. */
+    private fun needsUnlock(): Boolean {
+        val p = presets?.get(_state.value.lookId) ?: return false
+        if (canShoot(p)) return false
+        _state.update { it.copy(unlockPrompt = p.id) }
+        return true
     }
 
     fun onIntent(intent: CameraIntent) {
@@ -292,6 +316,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 rebindIfNeeded()
             }
             CameraIntent.LastShotUnavailable -> _state.update { it.copy(lastShot = null) }
+            CameraIntent.DismissUnlock -> _state.update { it.copy(unlockPrompt = null) }
             is CameraIntent.RecordAudioPermissionResult -> {
                 audioPermissionAsked = true
                 if (!intent.granted) _state.update { it.copy(audioDeniedNoticeSeq = it.audioDeniedNoticeSeq + 1) }
@@ -427,7 +452,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             it.copy(
                 mode = mode,
                 lookId = preset.id,
-                looks = repo.presetsFor(kind).map { p -> LookUi(p.id, p.displayNameRes, p.lightLeak.probability > 0f || p.dust > 0f) },
+                looks = repo.presetsFor(kind).map { p -> lookUi(p) },
                 ratio = if (mode == CameraMode.Video) preset.video.aspect.toAspectRatio() else photoRatio,
                 frame = if (mode == CameraMode.Video) FrameId.NONE else photoFrame,
                 dateStamp = if (mode == CameraMode.Video) false else photoDateStamp,
@@ -447,6 +472,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             RecordingPhase.Starting, RecordingPhase.Stopping -> Unit
             else -> {
                 if (s.camera != CameraStatus.Ready) return
+                if (needsUnlock()) return
                 val granted = ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 if (granted || audioPermissionAsked) startVideo(granted)
                 else _state.update { it.copy(audioPermissionRequestSeq = it.audioPermissionRequestSeq + 1) }
@@ -582,6 +608,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         if (!CameraRules.shutterEnabled(s) || !canAccept()) return
+        if (needsUnlock()) return
         if (s.timer == TimerMode.OFF) {
             capture()
             return

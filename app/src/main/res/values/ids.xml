@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="lifecycle_observer" type="id" />
+    <item name="native_media" type="id" />
+    <item name="native_headline" type="id" />
+    <item name="native_body" type="id" />
+    <item name="native_cta" type="id" />
 </resources>

@@ -22,17 +22,51 @@ class MainActivity : ComponentActivity() {
     private val editor: EditorViewModel by viewModels()
     private val gallery: GalleryViewModel by viewModels()
     private var screen = Screen.Camera
+    private val monetize get() = (application as App).monetize
+    /** SPEC 4.2 App Open: set when this activity launches another one (picker, share, Play, an ad) so the return is not a "warm start". */
+    private var launchedOwnActivity = false
+    private var stoppedAt = -1L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         setContent { VlTheme { AppRoot(vm, editor, gallery) { screen = it } } }
         updateDisplay()
+        window.decorView.post { monetize.start(this) }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (stoppedAt >= 0) {
+            val away = android.os.SystemClock.elapsedRealtime() - stoppedAt
+            monetize.billing.refresh()
+            monetize.ads.onWarmStart(this, away, launchedOwnActivity)
+        }
+        launchedOwnActivity = false
     }
 
     override fun onStop() {
         super.onStop()
+        stoppedAt = android.os.SystemClock.elapsedRealtime()
         vm.onBackground()
+    }
+
+    // Every startActivity / ActivityResult launch / IntentSender request from this activity passes through these.
+    @Deprecated("Tracks own launches only")
+    override fun startActivityForResult(intent: android.content.Intent, requestCode: Int, options: Bundle?) {
+        launchedOwnActivity = true
+        @Suppress("DEPRECATION")
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    @Deprecated("Tracks own launches only")
+    override fun startIntentSenderForResult(
+        intent: android.content.IntentSender, requestCode: Int, fillInIntent: android.content.Intent?,
+        flagsMask: Int, flagsValues: Int, extraFlags: Int, options: Bundle?,
+    ) {
+        launchedOwnActivity = true
+        @Suppress("DEPRECATION")
+        super.startIntentSenderForResult(intent, requestCode, fillInIntent, flagsMask, flagsValues, extraFlags, options)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

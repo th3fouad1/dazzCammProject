@@ -57,7 +57,11 @@ data class CameraCaps(
 
 /** K6: one entry of the look picker, in presets.json order. */
 @Immutable
-data class LookUi(val id: String, val displayNameRes: String, val hasRandomFx: Boolean)
+data class LookUi(
+    val id: String, val displayNameRes: String, val hasRandomFx: Boolean,
+    /** SPEC 4.1: previews freely, but shooting needs Pro or a rewarded unlock right now. */
+    val locked: Boolean = false,
+)
 
 enum class FocusPhase { Focusing, Locked, Failed }
 
@@ -130,6 +134,8 @@ data class CameraUiState(
     val videoFallbackNoticeSeq: Long = 0L,
     val videoErrorSeq: Long = 0L,
     val videoStorageFull: Boolean = false,
+    /** SPEC 4.1: the shutter was pressed on this locked look; the unlock dialog is open until dismissed. */
+    val unlockPrompt: String? = null,
 )
 
 /** The multi-shot slice of the UI state as a pure value. */
@@ -173,6 +179,9 @@ sealed interface CameraIntent {
     data object LastShotUnavailable : CameraIntent
 
     data class RecordAudioPermissionResult(val granted: Boolean) : CameraIntent
+
+    /** SPEC 4.1: the unlock dialog closed (unlocked, Pro, or not now). */
+    data object DismissUnlock : CameraIntent
 }
 
 /** Pure reducers shared by the ViewModel and tests. */

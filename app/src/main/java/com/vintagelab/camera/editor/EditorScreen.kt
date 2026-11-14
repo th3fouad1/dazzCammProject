@@ -61,7 +61,7 @@ import java.util.Locale
 /** Editor for imported photos and negatives (DESIGN section 12): live preview, look carousel, toggles, two sliders, Save. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, state: EditorState, onBack: () -> Unit) {
+fun EditorScreen(vm: EditorViewModel, state: EditorState, onBack: () -> Unit, onPro: () -> Unit = {}) {
     val res = LocalResources.current
     val snackbar = remember { SnackbarHostState() }
     val saving = state.phase == EditorPhase.Saving
@@ -91,6 +91,11 @@ fun EditorScreen(vm: EditorViewModel, state: EditorState, onBack: () -> Unit) {
                 else -> EditorBody(vm, state, saving)
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
+        }
+        state.unlockPrompt?.let { id ->
+            com.vintagelab.camera.monetize.UnlockDialog(
+                id, com.vintagelab.camera.ui.lookName(state.looks.firstOrNull { it.id == id }), onClose = vm::dismissUnlock, onPro = onPro,
+            )
         }
     }
 }

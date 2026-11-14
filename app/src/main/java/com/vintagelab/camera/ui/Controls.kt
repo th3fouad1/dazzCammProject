@@ -268,6 +268,11 @@ class CameraNav(
     val onLicenses: () -> Unit,
     val onGallery: (android.net.Uri?) -> Unit,
     val onImport: () -> Unit,
+    /** SPEC 4.3 */
+    val onPro: () -> Unit = {},
+    val pro: Boolean = false,
+    /** SPEC 4.2: UMP privacy options, only where the law requires the entry point. */
+    val onPrivacy: (() -> Unit)? = null,
 )
 
 @Composable
@@ -307,6 +312,11 @@ fun MoreMenu(s: CameraUiState, onIntent: (CameraIntent) -> Unit, nav: CameraNav)
                 text = { Text(stringResource(R.string.menu_toggle_state, stringResource(R.string.menu_keep_negatives), if (s.keepNegatives) on else off)) },
                 onClick = { onIntent(CameraIntent.ToggleKeepNegatives) },
             )
+            DropdownMenuItem(
+                text = { Text(stringResource(if (nav.pro) R.string.menu_pro_active else R.string.menu_pro), color = VlColors.Amber) },
+                onClick = { expanded = false; nav.onPro() },
+            )
+            nav.onPrivacy?.let { p -> DropdownMenuItem(text = { Text(stringResource(R.string.menu_privacy)) }, onClick = { expanded = false; p() }) }
             DropdownMenuItem(text = { Text(stringResource(R.string.menu_licenses)) }, onClick = { expanded = false; nav.onLicenses() })
         }
     }
@@ -622,6 +632,10 @@ fun MiniBar(s: CameraUiState, onIntent: (CameraIntent) -> Unit, vertical: Boolea
             if (s.mode == CameraMode.Photo) CaptureModeButtons(s, onIntent)
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 LastShotThumbnail(s, onOpenLastShot) { onIntent(CameraIntent.LastShotUnavailable) }
+                TextButton(onClick = { sheet = false; nav.onPro() }) {
+                    Text(stringResource(if (nav.pro) R.string.menu_pro_active else R.string.menu_pro), color = VlColors.Amber)
+                }
+                nav.onPrivacy?.let { p -> TextButton(onClick = { sheet = false; p() }) { Text(stringResource(R.string.menu_privacy), color = VlColors.Ink) } }
                 TextButton(onClick = { sheet = false; nav.onLicenses() }) { Text(stringResource(R.string.menu_licenses), color = VlColors.Ink) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {

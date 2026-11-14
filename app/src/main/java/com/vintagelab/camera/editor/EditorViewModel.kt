@@ -64,6 +64,8 @@ data class EditorState(
     val errorSeq: Long = 0L,
     /** Bumped by "shuffle" so the renderer notices the new seed. */
     val shuffles: Int = 0,
+    /** SPEC 4.1: Save was pressed on this locked look; the unlock dialog is open until dismissed. */
+    val unlockPrompt: String? = null,
 )
 
 /**
@@ -174,7 +176,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         _state.update {
             it.copy(
                 phase = EditorPhase.Ready,
-                looks = repo.presets.map { p -> LookUi(p.id, p.displayNameRes, p.lightLeak.probability > 0f || p.dust > 0f) },
+                looks = repo.presets.map { p -> LookUi(p.id, p.displayNameRes, p.lightLeak.probability > 0f || p.dust > 0f, locked = !canShoot(p)) },
                 lookId = lookId,
                 frame = if (composite && FrameGeometry.forcedAspect(frame, true) != null) FrameId.NONE else frame,
                 dateStamp = stampOn, prism = prism, exposureEv = ev, temperature = temp, composite = composite,
@@ -252,11 +254,32 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         _state.update { it.copy(shuffles = it.shuffles + 1) }
     }
 
+    private fun canShoot(p: com.vintagelab.camera.looks.Preset): Boolean {
+        val e = app.monetize.entitlements.state.value
+        return !e.loaded || e.canShoot(p)
+    }
+
+    init {
+        // SPEC 4.1: lock badges follow Pro and rewarded unlocks.
+        viewModelScope.launch {
+            app.monetize.entitlements.state.collect {
+                val repo = session?.repo ?: return@collect
+                _state.update { st -> st.copy(looks = st.looks.map { l -> l.copy(locked = !canShoot(repo.get(l.id))) }) }
+            }
+        }
+    }
+
+    fun dismissUnlock() = _state.update { it.copy(unlockPrompt = null) }
+
     /** Develops the full-resolution photo as a NEW MediaStore entry (the original is never touched). */
     fun save() {
         val st = _state.value
         val s = session ?: return
         if (st.phase != EditorPhase.Ready) return
+        if (!canShoot(s.repo.get(st.lookId))) {
+            _state.update { it.copy(unlockPrompt = st.lookId) }
+            return
+        }
         _state.update { it.copy(phase = EditorPhase.Saving) }
         val preset = EditAdjust.apply(s.repo.get(st.lookId), st.exposureEv, st.temperature)
         val look = lookState(st, s)

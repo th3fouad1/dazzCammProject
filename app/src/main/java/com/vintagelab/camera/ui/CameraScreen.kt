@@ -174,6 +174,12 @@ fun CameraScreen(
         }
         Box(Modifier.size(1.dp).semantics { liveRegion = LiveRegionMode.Polite; contentDescription = announcement })
         ScreenFlashOverlay(onScreenFlash, state.flashGel)
+        state.unlockPrompt?.let { id ->
+            com.vintagelab.camera.monetize.UnlockDialog(
+                id, lookName(state.looks.firstOrNull { it.id == id }),
+                onClose = { onIntent(CameraIntent.DismissUnlock) }, onPro = nav.onPro,
+            )
+        }
     }
 }
 

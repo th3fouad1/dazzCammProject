@@ -141,6 +141,8 @@ data class Preset(
     val defaultFrame: FrameId = FrameId.NONE,
     val dateStamp: DateStampSpec = DateStampSpec(),
     val video: VideoEffectsSpec = VideoEffectsSpec(),
+    /** SPEC 4.1: a locked look previews freely; taking a picture with it needs Pro or a rewarded unlock. */
+    val locked: Boolean = false,
 ) {
     companion object {
         /** Built-in identity preset used when presets.json is unusable. */

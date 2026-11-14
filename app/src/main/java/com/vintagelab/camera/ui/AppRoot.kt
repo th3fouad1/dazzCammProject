@@ -19,9 +19,10 @@ import com.vintagelab.camera.editor.EditorScreen
 import com.vintagelab.camera.editor.EditorViewModel
 import com.vintagelab.camera.gallery.GalleryScreen
 import com.vintagelab.camera.gallery.GalleryViewModel
+import com.vintagelab.camera.video.RecordingPhase
 
 /** Routes (DESIGN section 3.2). */
-enum class Screen { Camera, Licenses, Gallery, Editor }
+enum class Screen { Camera, Licenses, Gallery, Editor, Pro }
 
 @Composable
 fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewModel, onScreen: (Screen) -> Unit = {}) {
@@ -33,12 +34,29 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
     var galleryFocus by remember { mutableStateOf<Uri?>(null) }
     var handledAudioRequest by rememberSaveable { mutableStateOf(0L) }
     val owner = LocalLifecycleOwner.current
+    val activity = androidx.activity.compose.LocalActivity.current
+    val monetize = com.vintagelab.camera.monetize.rememberMonetize()
+    val entitlements by monetize.entitlements.state.collectAsStateWithLifecycle()
+    val privacyRequired by monetize.ads.privacyOptionsRequired.collectAsStateWithLifecycle()
+    var proReturn by rememberSaveable { mutableStateOf(Screen.Camera) }
     onScreen(screen)
 
-    fun openGallery(focus: Uri?) {
+    fun openPro() {
+        proReturn = if (screen == Screen.Pro) proReturn else screen
+        screen = Screen.Pro
+    }
+
+    fun showGallery(focus: Uri?) {
         galleryFocus = focus
         gallery.refresh()
         screen = Screen.Gallery
+    }
+
+    /** SPEC 4.2: opening the gallery is a navigation action that may show a paced interstitial first (never mid-capture). */
+    fun openGallery(focus: Uri?) {
+        val busy = state.recording.phase.let { it == RecordingPhase.Starting || it == RecordingPhase.Recording || it == RecordingPhase.Stopping } || state.boostProgress != null ||
+            state.captureState != CaptureState.Idle || state.developing > 0
+        if (busy) showGallery(focus) else monetize.ads.onNavigation(activity) { showGallery(focus) }
     }
 
     // The picker is registered here (not inside a menu): it must outlive the menu that launched it.
@@ -71,12 +89,13 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
     LaunchedEffect(editor) {
         editor.savedPhotos.collect { uri ->
             editor.close()
-            openGallery(uri)
+            monetize.ads.onNavigation(activity) { showGallery(uri) }
         }
     }
 
     when (screen) {
         Screen.Licenses -> LicensesScreen(onBack = { screen = Screen.Camera })
+        Screen.Pro -> com.vintagelab.camera.monetize.ProScreen(lookCount = vm.lookCount(), onBack = { screen = proReturn })
         Screen.Gallery -> GalleryScreen(
             gallery, galleryState, galleryFocus,
             onBack = { screen = Screen.Camera },
@@ -91,12 +110,15 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
         Screen.Editor -> EditorScreen(editor, editorState, onBack = {
             editor.close()
             screen = editorReturn
-        })
+        }, onPro = ::openPro)
         Screen.Camera -> {
             val nav = CameraNav(
                 onLicenses = { screen = Screen.Licenses },
                 onGallery = ::openGallery,
                 onImport = launchPicker,
+                onPro = ::openPro,
+                pro = entitlements.pro,
+                onPrivacy = if (privacyRequired && activity != null) ({ monetize.ads.showPrivacyOptions(activity) }) else null,
             )
             PermissionGate(state.permission, vm::onIntent, onOpenLicenses = { screen = Screen.Licenses }) {
                 CameraScreen(
