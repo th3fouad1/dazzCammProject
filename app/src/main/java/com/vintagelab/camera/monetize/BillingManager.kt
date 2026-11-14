@@ -70,34 +70,45 @@ class BillingManager(context: Context, private val entitlements: EntitlementStor
     /** Re-reads owned purchases (app resume, after a purchase): the only place Pro is switched off again. */
     fun refresh() {
         if (!client.isReady) return
+        val lock = Any()
         var subs: List<Purchase>? = null
         var inapp: List<Purchase>? = null
+        // Both answers are needed before Pro may be switched off; a failed query leaves Pro as it is.
         fun done() {
-            val s = subs ?: return
-            val i = inapp ?: return
-            handle(s + i, fromQuery = true)
+            val all = synchronized(lock) {
+                val s = subs ?: return
+                val i = inapp ?: return
+                s + i
+            }
+            handle(all, fromQuery = true)
         }
         client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()) { r, list ->
-            if (r.responseCode == BillingClient.BillingResponseCode.OK) { subs = list; done() }
+            if (r.responseCode == BillingClient.BillingResponseCode.OK) { synchronized(lock) { subs = list }; done() }
         }
         client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()) { r, list ->
-            if (r.responseCode == BillingClient.BillingResponseCode.OK) { inapp = list; done() }
+            if (r.responseCode == BillingClient.BillingResponseCode.OK) { synchronized(lock) { inapp = list }; done() }
         }
     }
 
+    /** Billing rejects mixed product types in one query ("All products should be of the same product type"): one query per type. */
     private fun queryProducts() {
-        val products = listOf(
-            QueryProductDetailsParams.Product.newBuilder().setProductId(SUB_ID).setProductType(BillingClient.ProductType.SUBS).build(),
-            QueryProductDetailsParams.Product.newBuilder().setProductId(LIFETIME_ID).setProductType(BillingClient.ProductType.INAPP).build(),
-        )
-        client.queryProductDetailsAsync(QueryProductDetailsParams.newBuilder().setProductList(products).build()) { r, result ->
-            if (r.responseCode != BillingClient.BillingResponseCode.OK) {
-                Log.i(TAG, "products: ${r.debugMessage}")
-                _state.update { it.copy(queried = true) }
-                return@queryProductDetailsAsync
+        val pending = java.util.concurrent.atomic.AtomicInteger(2)
+        val offers = java.util.concurrent.ConcurrentHashMap<ProPlan, PlanOffer>()
+        fun query(id: String, type: String) {
+            val product = QueryProductDetailsParams.Product.newBuilder().setProductId(id).setProductType(type).build()
+            client.queryProductDetailsAsync(QueryProductDetailsParams.newBuilder().setProductList(listOf(product)).build()) { r, result ->
+                if (r.responseCode == BillingClient.BillingResponseCode.OK) collect(result.productDetailsList, offers)
+                else Log.i(TAG, "products $id: ${r.debugMessage}")
+                if (pending.decrementAndGet() == 0) _state.update { it.copy(queried = true, offers = offers.toMap()) }
             }
-            val offers = mutableMapOf<ProPlan, PlanOffer>()
-            for (d in result.productDetailsList) {
+        }
+        query(SUB_ID, BillingClient.ProductType.SUBS)
+        query(LIFETIME_ID, BillingClient.ProductType.INAPP)
+    }
+
+    private fun collect(list: List<ProductDetails>, offers: MutableMap<ProPlan, PlanOffer>) {
+        run {
+            for (d in list) {
                 when (d.productId) {
                     SUB_ID -> {
                         subOffer(d, MONTHLY_PLAN)?.let { offers[ProPlan.Monthly] = it.copy(plan = ProPlan.Monthly) }
@@ -109,7 +120,6 @@ class BillingManager(context: Context, private val entitlements: EntitlementStor
                     }
                 }
             }
-            _state.update { it.copy(queried = true, offers = offers) }
         }
     }
 

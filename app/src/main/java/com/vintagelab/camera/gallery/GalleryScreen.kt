@@ -193,11 +193,12 @@ fun GalleryScreen(
                 when {
                     !state.loaded -> CircularProgressIndicator(color = VlColors.Amber, modifier = Modifier.align(Alignment.Center))
                     state.items.isEmpty() -> EmptyState(context)
-                    else -> Grid(state, vm, natives, adCfg.nativeEvery, onOpen = { viewer = it })
+                    // No ad is laid out under the full-screen viewer (no hidden impressions).
+                    else -> Grid(state, vm, if (viewer < 0) natives else emptyList(), adCfg.nativeEvery, onOpen = { viewer = it })
                 }
             }
             // SPEC 4.2: banner under the grid only (never on the camera or over a photo).
-            if (adsOn && adCfg.showBanner) {
+            if (adsOn && adCfg.showBanner && viewer < 0) {
                 com.vintagelab.camera.monetize.BannerAd(Modifier.windowInsetsPadding(WindowInsets.navigationBars))
             }
         }

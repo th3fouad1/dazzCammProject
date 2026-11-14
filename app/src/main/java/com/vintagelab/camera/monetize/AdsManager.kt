@@ -199,7 +199,9 @@ class AdsManager(
      */
     fun showRewarded(activity: Activity, onResult: (Boolean) -> Unit) {
         scope.launch(Dispatchers.Main) {
-            if (!active) { onResult(true); return@launch } // Pro, ads off or no consent: nothing to watch
+            val e = entitlements.value
+            if (e.pro || !config.value.adsEnabled) { onResult(true); return@launch } // nothing to watch
+            if (!active) { onResult(config.value.rewardFallbackGrant); return@launch } // SDK not started / no consent yet
             if (rewarded == null) {
                 loadRewarded()
                 withTimeoutOrNull(REWARD_WAIT_MS) { while (rewarded == null && rewardedLoading) delay(100) }

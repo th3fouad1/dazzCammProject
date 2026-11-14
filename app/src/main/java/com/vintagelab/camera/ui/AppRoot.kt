@@ -88,8 +88,11 @@ fun AppRoot(vm: CameraViewModel, editor: EditorViewModel, gallery: GalleryViewMo
     // A photo developed by the editor opens in the viewer.
     LaunchedEffect(editor) {
         editor.savedPhotos.collect { uri ->
-            editor.close()
-            monetize.ads.onNavigation(activity) { showGallery(uri) }
+            // The editor stays on screen under the ad: closing it first would flash the camera (and bind it) behind the ad.
+            monetize.ads.onNavigation(activity) {
+                editor.close()
+                showGallery(uri)
+            }
         }
     }
 
