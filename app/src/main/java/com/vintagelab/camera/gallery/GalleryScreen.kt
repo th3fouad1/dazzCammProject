@@ -60,6 +60,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
@@ -291,9 +292,12 @@ private fun Viewer(
         snapshotFlow { pager.currentPage }.collect { if (it >= items.size - 6) vm.loadMore() }
     }
     val hasNegative = remember(item.id, item.isVideo) { !item.isVideo && vm.hasNegative(item.id) }
+    // While a photo is zoomed in, drags pan the photo instead of swiping pages.
+    var zoomed by remember { mutableStateOf(false) }
+    LaunchedEffect(item.id) { zoomed = false }
     Box(Modifier.fillMaxSize().background(VlColors.Bench)) {
-        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items.getOrNull(it)?.id ?: it }) { p ->
-            items.getOrNull(p)?.let { ViewerPage(it) }
+        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoomed, key = { items.getOrNull(it)?.id ?: it }) { p ->
+            items.getOrNull(p)?.let { ViewerPage(it, active = p == pager.currentPage, onZoomed = { z -> if (p == pager.currentPage) zoomed = z }) }
         }
         Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing).background(VlColors.VfScrim), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(VlIcons.Back, stringResource(R.string.cd_back), tint = VlColors.Ink) }
@@ -328,9 +332,12 @@ private fun share(context: android.content.Context, item: GalleryItem, title: St
     }
 }
 
-/** One page: decoded at screen scale (long side at most 2048), never at full resolution. */
+/**
+ * One page: decoded at screen scale (long side at most 2048), never at full resolution.
+ * Photos zoom with pinch and double tap; past [HI_RES_ZOOM] the page re-decodes at up to [HI_RES_CAP] px so detail stays sharp.
+ */
 @Composable
-private fun ViewerPage(item: GalleryItem) {
+private fun ViewerPage(item: GalleryItem, active: Boolean, onZoomed: (Boolean) -> Unit) {
     if (item.isVideo) {
         val playCd = stringResource(R.string.cd_video_play)
         AndroidView(
@@ -352,34 +359,54 @@ private fun ViewerPage(item: GalleryItem) {
     val context = LocalContext.current
     var bmp by remember(item.id) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(item.id) { mutableStateOf(false) }
+    var hiRes by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    val zoom = remember(item.id) { ZoomState() }
     LaunchedEffect(item.id) {
-        val b = withContext(Dispatchers.IO) {
-            runCatching {
-                ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, item.uri)) { d, info, _ ->
-                    val long = max(info.size.width, info.size.height)
-                    if (long > 2048) {
-                        val k = 2048.0 / long
-                        d.setTargetSize(max(1, (info.size.width * k).toInt()), max(1, (info.size.height * k).toInt()))
-                    }
-                }
-            }.getOrNull()
-        }
+        val b = withContext(Dispatchers.IO) { decodeCapped(context, item.uri, 2048) }
         bmp = b
         failed = b == null
     }
-    // Release the page bitmap as soon as the pager disposes this page.
-    androidx.compose.runtime.DisposableEffect(item.id) {
+    // A page that leaves the screen goes back to fit.
+    LaunchedEffect(active) { if (!active) zoom.reset() }
+    LaunchedEffect(zoom.scale > 1f) { onZoomed(zoom.scale > 1f) }
+    val wantHiRes = zoom.scale >= HI_RES_ZOOM
+    LaunchedEffect(item.id, wantHiRes) {
+        val base = bmp
+        if (!wantHiRes || hiRes != null || base == null) return@LaunchedEffect
+        if (max(base.width, base.height) < 2048) return@LaunchedEffect // the photo is already at full size
+        hiRes = withContext(Dispatchers.IO) { decodeCapped(context, item.uri, HI_RES_CAP) }
+    }
+    // Release the page bitmaps as soon as the pager disposes this page.
+    DisposableEffect(item.id) {
         onDispose {
             bmp?.recycle()
             bmp = null
+            hiRes?.recycle()
+            hiRes = null
         }
     }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val b = bmp
+    Box(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
+        val b = hiRes ?: bmp
         when {
-            b != null -> Image(b.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().clip(androidx.compose.ui.graphics.RectangleShape))
+            b != null -> Image(
+                b.asImageBitmap(), null, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().zoomable(zoom, b.width.toFloat() / b.height),
+            )
             failed -> Text(stringResource(R.string.err_photo_missing), color = VlColors.InkMuted)
             else -> CircularProgressIndicator(color = VlColors.Amber)
         }
     }
 }
+
+private const val HI_RES_ZOOM = 1.6f
+private const val HI_RES_CAP = 4096
+
+private fun decodeCapped(context: android.content.Context, uri: Uri, cap: Int): Bitmap? = runCatching {
+    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { d, info, _ ->
+        val long = max(info.size.width, info.size.height)
+        if (long > cap) {
+            val k = cap.toDouble() / long
+            d.setTargetSize(max(1, (info.size.width * k).toInt()), max(1, (info.size.height * k).toInt()))
+        }
+    }
+}.getOrNull()
