@@ -193,6 +193,12 @@
     <string name="lock_not_now">Plus tard</string>
     <string name="msg_look_unlocked">%1$s débloqué pour %2$d heures</string>
     <string name="msg_ad_not_finished">Regardez la pub jusqu\'au bout pour débloquer le look</string>
+    <string name="points_balance">Points : %1$d. %2$d points débloquent un look pendant %3$d heures.</string>
+    <string name="points_use">Utiliser %1$d points</string>
+    <string name="points_share">Partager l’app (+%1$d points)</string>
+    <string name="points_come_back">Partagez à nouveau demain pour gagner des points.</string>
+    <string name="share_app_title">Partager l’app</string>
+    <string name="share_app_message">Je prends des photos style argentique avec cette app : %1$s</string>
     <string name="pro_title">Pro</string>
     <string name="pro_headline">Tous les looks. Zéro pub.</string>
     <string name="pro_benefit_looks">Les %1$d looks, et tous les nouveaux</string>

@@ -86,6 +86,7 @@ fun UnlockDialog(lookId: String, lookName: String, onClose: () -> Unit, onPro: (
         text = {
             Column {
                 Text(stringResource(R.string.lock_body, cfg.rewardUnlockHours))
+                if (!loading) PointsSection(cfg, lookId, lookName, onUnlocked = onClose)
                 if (loading) {
                     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(color = VlColors.Amber, strokeWidth = 2.dp, modifier = Modifier.height(18.dp))
@@ -119,6 +120,36 @@ fun UnlockDialog(lookId: String, lookName: String, onClose: () -> Unit, onPro: (
     )
 }
 
+/**
+ * SPEC 4.4: the share-points balance with "Use N points" when it covers an unlock of [lookId] (null on the Pro screen),
+ * otherwise "Share the app" while today's share reward is still available.
+ */
+@Composable
+private fun PointsSection(cfg: AdConfig, lookId: String?, lookName: String?, onUnlocked: () -> Unit) {
+    if (!cfg.shareRewardsEnabled) return
+    val monetize = rememberMonetize()
+    val activity = LocalActivity.current
+    val context = LocalContext.current
+    val ent by monetize.entitlements.state.collectAsStateWithLifecycle()
+    val today = java.time.LocalDate.now().toEpochDay()
+    val left = SharePoints.sharesLeft(ent.wallet, cfg, today)
+    Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.points_balance, ent.wallet.points, cfg.pointsUnlockCost, cfg.pointsUnlockHours), color = VlColors.InkMuted, fontSize = 14.sp)
+        when {
+            lookId != null && SharePoints.canSpend(ent.wallet, cfg) -> TextButton(onClick = {
+                if (monetize.entitlements.unlockWithPoints(lookId, cfg)) {
+                    Toast.makeText(context, context.getString(R.string.msg_look_unlocked, lookName, cfg.pointsUnlockHours), Toast.LENGTH_SHORT).show()
+                    onUnlocked()
+                }
+            }) { Text(stringResource(R.string.points_use, cfg.pointsUnlockCost), color = VlColors.Amber) }
+            left > 0 && cfg.pointsPerShare > 0 -> TextButton(enabled = activity != null, onClick = { activity?.let { ShareApp.launch(it) } }) {
+                Text(stringResource(R.string.points_share, cfg.pointsPerShare), color = VlColors.Amber)
+            }
+            else -> Text(stringResource(R.string.points_come_back), color = VlColors.InkMuted, fontSize = 13.sp)
+        }
+    }
+}
+
 /** SPEC 4.3: the Pro screen. Plans and prices come from Play; nothing is hardcoded. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,6 +177,10 @@ fun ProScreen(lookCount: Int, onBack: () -> Unit) {
             Benefit(stringResource(R.string.pro_benefit_looks, lookCount))
             Benefit(stringResource(R.string.pro_benefit_ads))
             Benefit(stringResource(R.string.pro_benefit_support))
+            if (!ent.pro) {
+                val cfg by monetize.remote.config.collectAsStateWithLifecycle()
+                PointsSection(cfg, lookId = null, lookName = null, onUnlocked = {})
+            }
             Spacer(Modifier.height(8.dp))
             when {
                 ent.pro -> {

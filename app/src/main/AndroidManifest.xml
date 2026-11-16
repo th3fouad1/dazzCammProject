@@ -34,6 +34,9 @@
             </intent-filter>
         </activity>
 
+        <!-- SPEC 4.4: the share sheet reports the chosen target here (explicit PendingIntent only). -->
+        <receiver android:name=".monetize.ShareRewardReceiver" android:exported="false" />
+
         <!-- Photo Picker backport for API 29-32 (SPEC 6.7): lets Google Play services serve PickVisualMedia; no storage permission. -->
         <service
             android:name="com.google.android.gms.metadata.ModuleDependencies"

@@ -200,6 +200,12 @@
     <string name="lock_not_now">Not now</string>
     <string name="msg_look_unlocked">%1$s unlocked for %2$d hours</string>
     <string name="msg_ad_not_finished">Watch the whole ad to unlock the look</string>
+    <string name="points_balance">Points: %1$d. %2$d points unlock a look for %3$d hours.</string>
+    <string name="points_use">Use %1$d points</string>
+    <string name="points_share">Share the app (+%1$d points)</string>
+    <string name="points_come_back">Share again tomorrow to earn more points.</string>
+    <string name="share_app_title">Share the app</string>
+    <string name="share_app_message">I shoot film-look photos with this camera app: %1$s</string>
     <string name="pro_title">Pro</string>
     <string name="pro_headline">Every look. No ads.</string>
     <string name="pro_benefit_looks">All %1$d looks, and every new one</string>

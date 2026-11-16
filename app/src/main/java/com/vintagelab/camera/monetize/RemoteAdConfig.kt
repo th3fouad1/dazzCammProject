@@ -49,6 +49,11 @@ class RemoteAdConfig(context: Context) {
             appOpenMinIntervalSeconds = long(AdConfig.KEY_APP_OPEN_MIN_INTERVAL, d.appOpenMinIntervalSeconds).coerceAtLeast(0),
             rewardUnlockHours = long(AdConfig.KEY_REWARD_UNLOCK_HOURS, d.rewardUnlockHours).coerceIn(1, 24 * 7),
             rewardFallbackGrant = bool(AdConfig.KEY_REWARD_FALLBACK, d.rewardFallbackGrant),
+            shareRewardsEnabled = bool(AdConfig.KEY_SHARE_REWARDS_ENABLED, d.shareRewardsEnabled),
+            pointsPerShare = long(AdConfig.KEY_POINTS_PER_SHARE, d.pointsPerShare).coerceIn(0, 1000),
+            shareDailyLimit = long(AdConfig.KEY_SHARE_DAILY_LIMIT, d.shareDailyLimit).coerceIn(0, 10),
+            pointsUnlockCost = long(AdConfig.KEY_POINTS_UNLOCK_COST, d.pointsUnlockCost).coerceIn(1, 10_000),
+            pointsUnlockHours = long(AdConfig.KEY_POINTS_UNLOCK_HOURS, d.pointsUnlockHours).coerceIn(1, 24 * 7),
         )
     }
 

@@ -134,6 +134,16 @@ the owner approves its reference render `docs/looks/<id>.png`; that PNG becomes 
   warm start. A purchase callback only grants Pro; only a full query can remove it (expired, refunded). Pending payments show a notice.
 - Real purchases can only be tested once the app is on a Play Console testing track with license testers (Phase C).
 
+### 4.4 Share points (2026-11-16)
+- Owner (D34): users earn points by sharing the app and spend them on locked looks. Points unlock one look for `points_unlock_hours` (default 24), like a rewarded ad.
+- "Share the app (+N points)" sits in the unlock dialog and on the Pro screen (hidden for Pro). It opens the system chooser with the Play Store link; the chooser's
+  `IntentSender` callback (`ShareRewardReceiver`, not exported, explicit mutable `PendingIntent`) fires only when a target is chosen, so backing out earns nothing.
+- Android cannot confirm the message was sent, so earning is capped: `points_per_share` 10, at most `share_daily_limit` 1 rewarded share per local calendar day.
+  `points_unlock_cost` 10. `share_rewards_enabled` true is the kill switch (hides the section, stops earning and spending). All five are Remote Config keys.
+- When the balance covers the cost, the unlock dialog offers "Use N points" instead of the share button. The wallet (points, last share day, shares that day)
+  lives in the `monetize` DataStore; it is local, so it is lost on uninstall. Nothing is rewarded for ratings or reviews (Play policy).
+- Later (not built): verified referrals (Play Install Referrer + a Firebase backend) crediting the sharer when a friend installs.
+
 ## 5. Pipeline & parity (the hard constraint)
 
 ```
@@ -661,6 +671,7 @@ pipeline stays.
 | D31 | Stills (short side > 1440) render grain on the output pixel grid (cell ≥ 1.8 px, coarser 0.47× octave, amplitude ×1.25) instead of upsampling the preview lattice; exposure pushes use a soft linear shoulder (knee 0.75) instead of a hard clip | Accepted (owner: "dir l-plan", quality review 2026-11-13) | 2026-11-13 |
 | D32 | Night/HDR are an in-app burst merge (SPEC 7.7) with internal EV / AE-range / AE-AWB-lock control; the merge outputs a q100 JPEG so `process(input, settings)` stays frozen | Accepted (owner: "dir hdr oui w night mode") | 2026-11-13 |
 | D33 | monetization: rewarded unlocks + interstitial/banner/native/App Open (§4.2) + Pro subscription and lifetime (§4.3); 10 of 18 looks locked (§4.1); INTERNET and the AD_ID permission accepted; global market | Accepted (owner: "market global, nzido ads w dir internet", "bda sprint Ads w dir hta premium") | 2026-11-14 |
+| D34 | share points (§4.4): sharing the app earns capped points (chooser callback, 1 per day) that unlock a look for 24 h; verified referrals deferred | Accepted (owner: "nbdaw b A w points key7ello look 24h") | 2026-11-16 |
 
 ## 12. Risks
 | ID | risk | mitigation | phase |
